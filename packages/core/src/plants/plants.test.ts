@@ -7,7 +7,7 @@ import { PLANT_UPDATE_STRIDE, PRODUCTIVITY_KNOBS } from "./plants.js";
 
 /** A small world with landforms sized to it, so tests stay fast. */
 const world = (overrides: Partial<WorldConfig> = {}) =>
-  new Simulation({ width: 600, height: 600, landformSize: 300, startingPlants: 300, ...overrides });
+  new Simulation({ width: 600, height: 600, landformSize: 300, startingPlants: 300, startingCritters: 0, ...overrides });
 
 /** A world with no plants and nothing that adds or removes them on its own. */
 const quiet = (overrides: Partial<WorldConfig> = {}) =>
