@@ -78,20 +78,17 @@ function copyTerrain(t: TerrainData): TerrainData {
     ...t,
     levels: { ...t.levels },
     elevation: t.elevation.slice(),
-    water: t.water.slice(),
-    temperature: t.temperature.slice(),
-    moisture: t.moisture.slice(),
-    waterDistance: t.waterDistance.slice(),
-    rivers: t.rivers.slice(),
     terrainType: t.terrainType.slice(),
+    temperature: t.temperature.slice(),
+    distanceToWater: t.distanceToWater.slice(),
+    rainfall: t.rainfall.slice(),
     biome: t.biome.slice(),
   };
 }
 
 function terrainBuffers(t: TerrainData): Transferable[] {
-  return [t.elevation, t.water, t.temperature, t.moisture, t.waterDistance, t.rivers, t.terrainType, t.biome].map(
-    (array) => array.buffer as ArrayBuffer,
-  );
+  const fields = [t.elevation, t.terrainType, t.temperature, t.distanceToWater, t.rainfall, t.biome];
+  return fields.map((field) => field.buffer as ArrayBuffer);
 }
 
 function frame(): void {

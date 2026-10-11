@@ -9,6 +9,7 @@
     "dev": "npm run dev -w @critter-evo/web --",
     "build": "npm run build -w @critter-evo/web",
     "sim": "npm run sim -w @critter-evo/cli --",
+    "sheet": "npm run sheet -w @critter-evo/cli --",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "npm run typecheck --workspaces",

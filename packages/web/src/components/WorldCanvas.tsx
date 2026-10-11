@@ -1,25 +1,21 @@
 import {
-  biomeAt,
   BIOME_NAMES,
-  elevationAt,
-  isWater,
-  moistureAt,
-  riverWidthAtPoint,
-  temperatureAt,
+  Biome,
+  cellIndexAt,
+  heightOf,
+  SHADED_VIEWS,
   TERRAIN_TYPE_NAMES,
-  terrainTypeAt,
-  waterDepthAt,
-  waterDistanceAt,
-  waterLevelAt,
+  TERRAIN_VIEW_NAMES,
+  TERRAIN_VIEWS,
   type TerrainData,
+  type TerrainView,
 } from "@critter-evo/core";
 import { Application, Container, Graphics } from "pixi.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Camera } from "../render/Camera";
-import type { TerrainView } from "../render/terrainColors";
 import { TerrainLayer } from "../render/TerrainLayer";
 import type { SimClient } from "../sim/SimClient";
-import { TerrainLegend, ViewControls } from "./TerrainLegend";
+import { TerrainLegend } from "./TerrainLegend";
 
 const BACKGROUND = 0x0e1013;
 const WORLD_BORDER = 0x9aa5a0;
@@ -35,14 +31,14 @@ export function WorldCanvas({ client }: { client: SimClient }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const readoutRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<() => void>(() => {});
-
   const [view, setView] = useState<TerrainView>("biome");
   const [relief, setRelief] = useState(true);
-  // The Pixi loop reads view settings through a ref, so changing them doesn't restart Pixi.
-  const viewRef = useRef({ view, relief });
+  // The render loop reads these from a ref, so changing them doesn't restart the renderer.
+  const styleRef = useRef({ view, relief });
   useEffect(() => {
-    viewRef.current = { view, relief };
+    styleRef.current = { view, relief };
   }, [view, relief]);
+  const shadeable = SHADED_VIEWS.includes(view);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -54,8 +50,7 @@ export function WorldCanvas({ client }: { client: SimClient }) {
     let cancelled = false;
     let removeListeners = () => {};
 
-    // The terrain shader is GLSL (WebGL 2), so ask Pixi for the WebGL renderer.
-    void app.init({ resizeTo: host, background: BACKGROUND, antialias: true, preference: "webgl" }).then(() => {
+    void app.init({ resizeTo: host, background: BACKGROUND, antialias: true }).then(() => {
       initialized = true;
       // React StrictMode mounts effects twice in development. Clean up a stale init.
       if (cancelled) {
@@ -74,7 +69,7 @@ export function WorldCanvas({ client }: { client: SimClient }) {
 
       let terrainLayer: TerrainLayer | null = null;
       let terrainWorldId = -1;
-      let appliedView = "";
+      let terrainStyle: { view: TerrainView; relief: boolean } | null = null;
 
       let fittedWorldId = -1;
       let hover: { x: number; y: number } | null = null;
@@ -196,19 +191,14 @@ export function WorldCanvas({ client }: { client: SimClient }) {
           app.screen.height / 2 - camera.y * camera.zoom,
         );
 
-        if (worldId !== terrainWorldId) {
+        const style = styleRef.current;
+        if (worldId !== terrainWorldId || style !== terrainStyle) {
           terrainLayer?.destroy();
-          terrainLayer = new TerrainLayer(terrain);
+          terrainLayer = new TerrainLayer(terrain, style.view, style.relief);
           terrainContainer.addChild(terrainLayer.container);
           terrainWorldId = worldId;
-          appliedView = "";
+          terrainStyle = style;
           updateReadout();
-        }
-        const { view, relief } = viewRef.current;
-        const viewKey = `${view}|${relief}`;
-        if (terrainLayer && viewKey !== appliedView) {
-          terrainLayer.setView(view, relief);
-          appliedView = viewKey;
         }
         // Border width is in screen pixels, so it stays crisp at any zoom.
         border.clear().rect(0, 0, config.width, config.height).stroke({ width: 1.5 / camera.zoom, color: WORLD_BORDER });
@@ -230,7 +220,20 @@ export function WorldCanvas({ client }: { client: SimClient }) {
         <button onClick={() => fitRef.current()} title="Fit world to view (F)">
           Fit world
         </button>
-        <ViewControls view={view} relief={relief} onViewChange={setView} onReliefChange={setRelief} />
+        <select value={view} onChange={(e) => setView(e.target.value as TerrainView)} title="Map view">
+          {TERRAIN_VIEWS.map((v) => (
+            <option key={v} value={v}>
+              {TERRAIN_VIEW_NAMES[v]}
+            </option>
+          ))}
+        </select>
+        <label
+          className="toggle"
+          title={shadeable ? "Shade the map by slope, lit from the northwest, to show elevation" : "Not available here: shading would change the colors that show values"}
+        >
+          <input type="checkbox" checked={relief && shadeable} disabled={!shadeable} onChange={(e) => setRelief(e.target.checked)} />
+          Relief
+        </label>
       </div>
       <div ref={readoutRef} className="canvas-readout" />
       <TerrainLegend client={client} view={view} />
@@ -245,24 +248,17 @@ function GeneratingOverlay({ client }: { client: SimClient }) {
 }
 
 function describeCell(terrain: TerrainData, x: number, y: number): string {
-  const type = terrainTypeAt(terrain, x, y);
-  let what: string;
-  if (!isWater(type)) {
-    what = `${TERRAIN_TYPE_NAMES[type]}  ·  ${BIOME_NAMES[biomeAt(terrain, x, y)]}`;
-  } else if (waterLevelAt(terrain, x, y) > 0) {
-    const body = elevationAt(terrain, x, y) < terrain.levels.sea ? "sea" : "lake";
-    what = `${TERRAIN_TYPE_NAMES[type]}  ·  ${body}  ·  depth ${waterDepthAt(terrain, x, y).toFixed(2)}`;
-  } else {
-    what = `${TERRAIN_TYPE_NAMES[type]}  ·  river ${riverWidthAtPoint(terrain, x, y).toFixed(1)} u wide`;
-  }
-  const lines = [
-    `x ${x.toFixed(1)}  y ${y.toFixed(1)}`,
-    what,
-    `${temperatureAt(terrain, x, y).toFixed(1)}°F   elevation ${elevationAt(terrain, x, y).toFixed(3)}   moisture ${moistureAt(terrain, x, y).toFixed(2)}`,
-  ];
-  if (!isWater(type)) {
-    const d = waterDistanceAt(terrain, x, y);
-    lines.push(Number.isFinite(d) ? `water ${d.toFixed(0)} u away` : "no water in this world");
-  }
-  return lines.join("\n");
+  const i = cellIndexAt(terrain, x, y);
+  const elevation = terrain.elevation[i]!;
+  const feet = Math.round(heightOf(terrain, elevation)).toLocaleString("en-US");
+  return [
+    `x ${x.toFixed(1)}  y ${y.toFixed(1)}  ·  cell ${i % terrain.cols}, ${Math.floor(i / terrain.cols)}`,
+    `${TERRAIN_TYPE_NAMES[terrain.terrainType[i]!]}${terrain.biome[i] === Biome.None ? "" : `  ·  ${BIOME_NAMES[terrain.biome[i]!]}`}  ·  elevation ${elevation.toFixed(3)}  ·  ${feet} ft`,
+    `${terrain.temperature[i]!.toFixed(1)}°F  ·  ${Math.round(terrain.rainfall[i]!)} in rain  ·  ${describeDistance(terrain.distanceToWater[i]!)}`,
+  ].join("\n");
+}
+
+function describeDistance(distance: number): string {
+  if (distance === 0) return "water";
+  return Number.isFinite(distance) ? `${Math.round(distance)} u to water` : "no water";
 }

@@ -1,45 +1,38 @@
-import { Biome, TerrainType } from "@critter-evo/core";
 import { describe, expect, it } from "vitest";
-import {
-  BIOME_COLORS,
-  buildPalette,
-  MiscColor,
-  PALETTE_ROWS,
-  PALETTE_WIDTH,
-  PaletteRow,
-  sampleStops,
-  SNOW,
-  TEMPERATURE_STOPS,
-  TERRAIN_TYPE_COLORS,
-} from "./terrainColors";
+import { biomeLegend, cssColor, cssSteps, stepPosition, terrainTypeLegend } from "./terrainColors";
 
-function texel(palette: Uint8Array, row: number, col: number): number[] {
-  const p = (row * PALETTE_WIDTH + col) * 4;
-  return [...palette.slice(p, p + 4)];
-}
-
-describe("buildPalette", () => {
-  const palette = buildPalette();
-
-  it("has one RGBA texel per palette cell", () => {
-    expect(palette.length).toBe(PALETTE_WIDTH * PALETTE_ROWS * 4);
+describe("terrain colors", () => {
+  it("lists every terrain type in the legend, from deep water up", () => {
+    expect(terrainTypeLegend().map((item) => item.label)).toEqual(["Deep water", "Shallow water", "Land", "Mountain"]);
   });
 
-  it("puts each biome and terrain type color at its id", () => {
-    expect(texel(palette, PaletteRow.Biome, Biome.Desert)).toEqual([...BIOME_COLORS[Biome.Desert]!, 255]);
-    expect(texel(palette, PaletteRow.TerrainType, TerrainType.Mountain)).toEqual([...TERRAIN_TYPE_COLORS[TerrainType.Mountain]!, 255]);
-    expect(texel(palette, PaletteRow.Misc, MiscColor.Snow)).toEqual([...SNOW, 255]);
+  it("lists every biome from cold to hot, then water", () => {
+    expect(biomeLegend().map((item) => item.label)).toEqual([
+      "Tundra",
+      "Taiga",
+      "Grassland",
+      "Temperate forest",
+      "Temperate rainforest",
+      "Desert",
+      "Savanna",
+      "Rainforest",
+      "Shallow water",
+      "Deep water",
+    ]);
   });
 
-  it("samples ramps from their first to last stop", () => {
-    expect(texel(palette, PaletteRow.Temperature, 0).slice(0, 3)).toEqual([...TEMPERATURE_STOPS[0]!.color]);
-    expect(texel(palette, PaletteRow.Temperature, PALETTE_WIDTH - 1).slice(0, 3)).toEqual([...TEMPERATURE_STOPS.at(-1)!.color]);
+  it("converts colors for CSS", () => {
+    expect(cssColor([255, 0, 128])).toBe("rgb(255,0,128)");
+    expect(cssColor([12.4, 0.6, 99.5])).toBe("rgb(12,1,100)");
   });
-});
 
-describe("sampleStops", () => {
-  it("clamps outside 0..1", () => {
-    expect(sampleStops(TEMPERATURE_STOPS, -5)).toEqual(TEMPERATURE_STOPS[0]!.color);
-    expect(sampleStops(TEMPERATURE_STOPS, 5)).toEqual(TEMPERATURE_STOPS.at(-1)!.color);
+  it("draws each step as a solid block sized by its share of the scale", () => {
+    const steps = [
+      { from: -10, to: 0, color: [0, 0, 0] },
+      { from: 0, to: 30, color: [255, 255, 255] },
+    ] as const;
+    expect(cssSteps(steps)).toBe("linear-gradient(to right, rgb(0,0,0) 0.0% 25.0%, rgb(255,255,255) 25.0% 100.0%)");
+    expect(stepPosition(steps, 0)).toBe(0.25);
+    expect(stepPosition(steps, 99)).toBe(1);
   });
 });

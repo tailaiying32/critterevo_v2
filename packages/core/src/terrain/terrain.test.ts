@@ -1,346 +1,431 @@
 import { describe, expect, it } from "vitest";
-import { makeConfig, MAX_TERRAIN_CELLS, type WorldConfig } from "../config.js";
-import { Rng } from "../rng.js";
-import { chamferDistance } from "./distance.js";
+import { makeConfig, type WorldConfig } from "../config.js";
 import { generateTerrain } from "./generate.js";
-import { RIVER_STRIDE } from "./rivers.js";
-import { biomeAt, elevationAt, sampleField, terrainTypeAt, waterDepthAt } from "./sample.js";
-import { Biome, biomeFor, isWater, MoistureBand, TemperatureBand, TerrainType, type TerrainData } from "./types.js";
+import { Biome, classifyBiome } from "./biomes.js";
+import { distanceToWater, seaLevelTemperatureAt } from "./climate.js";
+import { biomeAt, cellIndexAt, distanceToWaterAt, elevationAt, heightAt, rainfallAt, temperatureAt, terrainTypeAt } from "./lookup.js";
+import { countSpecks } from "./specks.js";
+import { classifyTerrain, heightOf, isWater, TerrainType, type TerrainData } from "./types.js";
 
-// A small world keeps the tests fast: 100 x 80 samples.
-function small(overrides: Partial<WorldConfig> = {}): WorldConfig {
-  return makeConfig({ width: 500, height: 400, cellSize: 5, elevationFeatureSize: 300, ...overrides });
+/** A smaller world than the default, so tests stay fast. */
+const small = (overrides: Partial<WorldConfig> = {}) => generateTerrain(makeConfig({ width: 800, height: 600, ...overrides }));
+
+function shareOf(terrain: TerrainData, match: (type: TerrainType) => boolean): number {
+  let count = 0;
+  for (const type of terrain.terrainType) if (match(type as TerrainType)) count++;
+  return (100 * count) / terrain.terrainType.length;
 }
-
-function share(terrain: TerrainData, predicate: (i: number) => boolean, among?: (i: number) => boolean): number {
-  let hit = 0;
-  let total = 0;
-  for (let i = 0; i < terrain.cols * terrain.rows; i++) {
-    if (among && !among(i)) continue;
-    total++;
-    if (predicate(i)) hit++;
-  }
-  return hit / total;
-}
-
-const center = (t: TerrainData, i: number) => [((i % t.cols) + 0.5) * t.cellSize, (Math.floor(i / t.cols) + 0.5) * t.cellSize] as const;
 
 describe("generateTerrain", () => {
-  it("produces a grid matching the world size and sample spacing", () => {
-    const t = generateTerrain(small());
-    expect(t.cols).toBe(100);
-    expect(t.rows).toBe(80);
-    expect(t.elevation.length).toBe(8000);
+  it("covers the world with a grid of cells", () => {
+    const terrain = small({ width: 803, cellSize: 5 });
+    expect(terrain.cols).toBe(161);
+    expect(terrain.rows).toBe(120);
+    expect(terrain.elevation.length).toBe(161 * 120);
+    expect(terrain.terrainType.length).toBe(161 * 120);
   });
 
-  it("is deterministic for a given seed and config", () => {
-    const a = generateTerrain(small({ seed: 7 }));
-    const b = generateTerrain(small({ seed: 7 }));
+  it("gives the same grid for the same seed and different grids for different seeds", () => {
+    const a = small({ seed: 7 });
+    const b = small({ seed: 7 });
+    const c = small({ seed: 8 });
     expect(a.elevation).toEqual(b.elevation);
-    expect(a.water).toEqual(b.water);
-    expect(a.rivers).toEqual(b.rivers);
-    expect(a.temperature).toEqual(b.temperature);
-    expect(a.moisture).toEqual(b.moisture);
-    expect(a.biome).toEqual(b.biome);
+    expect(a.terrainType).toEqual(b.terrainType);
+    expect(a.elevation).not.toEqual(c.elevation);
   });
 
-  it("differs across seeds", () => {
-    const a = generateTerrain(small({ seed: 1 }));
-    const b = generateTerrain(small({ seed: 2 }));
-    expect(a.elevation).not.toEqual(b.elevation);
+  it("keeps elevation between 0 and 1", () => {
+    const terrain = small({ octaves: 8, persistence: 0.9 });
+    for (const e of terrain.elevation) {
+      expect(e).toBeGreaterThanOrEqual(0);
+      expect(e).toBeLessThanOrEqual(1);
+    }
   });
 
-  it("matches the sea, shallow water, and mountain coverage knobs", () => {
-    const t = generateTerrain(small({ waterCoverage: 40, shallowWaterShare: 25, mountainCoverage: 20 }));
-    const belowSea = (i: number) => t.elevation[i]! < t.levels.sea;
-    const fieldWater = (i: number) => t.water[i]! > 0;
-    expect(share(t, belowSea)).toBeCloseTo(0.4, 2);
-    expect(share(t, (i) => t.water[i]! < t.levels.deep, fieldWater)).toBeCloseTo(0.25, 2);
-    expect(share(t, (i) => t.elevation[i]! >= t.levels.mountain, (i) => !belowSea(i))).toBeCloseTo(0.2, 2);
+  it("matches the coverage knobs, whatever the noise settings", () => {
+    for (const noise of [{}, { octaves: 1 }, { persistence: 0.8, octaves: 6 }, { landformSize: 100 }]) {
+      for (const seed of [1, 2]) {
+        const terrain = small({ seed, waterCoverage: 35, shallowWaterShare: 40, mountainCoverage: 12, ...noise });
+        expect(shareOf(terrain, isWater)).toBeCloseTo(35, 1);
+        expect(shareOf(terrain, (t) => t === TerrainType.ShallowWater)).toBeCloseTo(35 * 0.4, 1);
+        expect(shareOf(terrain, (t) => t === TerrainType.Mountain)).toBeCloseTo(12, 1);
+      }
+    }
   });
 
-  it("handles zero coverage", () => {
-    const t = generateTerrain(small({ waterCoverage: 0, mountainCoverage: 0 }));
-    expect(share(t, (i) => t.elevation[i]! < t.levels.sea)).toBe(0);
-    expect(share(t, (i) => t.terrainType[i] === TerrainType.Mountain)).toBe(0);
+  it("handles coverage at the extremes", () => {
+    const dry = small({ waterCoverage: 0, mountainCoverage: 0 });
+    expect(shareOf(dry, (t) => t === TerrainType.Land)).toBe(100);
+    const flooded = small({ waterCoverage: 100, mountainCoverage: 50 });
+    expect(shareOf(flooded, isWater)).toBe(100);
+    const allShallow = small({ shallowWaterShare: 100 });
+    expect(shareOf(allShallow, (t) => t === TerrainType.DeepWater)).toBe(0);
   });
 
-  it("gets warmer toward the middle row and colder toward the edges", () => {
-    const t = generateTerrain(small({ temperatureVariation: 0, elevationCooling: 0 }));
-    const rowMean = (r: number) => {
-      let sum = 0;
-      for (let c = 0; c < t.cols; c++) sum += t.temperature[r * t.cols + c]!;
-      return sum / t.cols;
+  it("classifies every cell from its own elevation", () => {
+    const terrain = small();
+    terrain.elevation.forEach((e, i) => expect(terrain.terrainType[i]).toBe(classifyTerrain(terrain.levels, e)));
+  });
+
+  it("orders the types by elevation: deep water, shallow water, land, mountain", () => {
+    const { levels } = small();
+    expect(levels.shallow).toBeLessThanOrEqual(levels.sea);
+    expect(levels.sea).toBeLessThan(levels.mountain);
+    expect(levels.mountain).toBeLessThanOrEqual(levels.peak);
+  });
+
+  it("changing cell size changes detail, not the shape of the world", () => {
+    const fine = small({ cellSize: 4 });
+    const coarse = small({ cellSize: 8 });
+    let same = 0;
+    let total = 0;
+    for (let y = 4; y < 600; y += 8) {
+      for (let x = 4; x < 800; x += 8) {
+        if (terrainTypeAt(fine, x, y) === terrainTypeAt(coarse, x, y)) same++;
+        total++;
+      }
+    }
+    expect(same / total).toBeGreaterThan(0.9);
+  });
+});
+
+describe("height", () => {
+  it("puts the highest cell at exactly the peak height and water at 0", () => {
+    const terrain = small({ peakHeight: 9000 });
+    let highest = 0;
+    terrain.elevation.forEach((e, i) => {
+      const h = heightOf(terrain, e);
+      if (isWater(terrain.terrainType[i] as TerrainType)) expect(h).toBe(0);
+      else expect(h).toBeGreaterThanOrEqual(0);
+      highest = Math.max(highest, h);
+    });
+    expect(highest).toBe(9000);
+  });
+
+  it("rises in a straight line with elevation when lowland flatness is 0", () => {
+    const terrain = small({ lowlandFlatness: 0 });
+    const { sea, peak } = terrain.levels;
+    const low = heightOf(terrain, sea + (peak - sea) * 0.25);
+    const high = heightOf(terrain, sea + (peak - sea) * 0.75);
+    expect(high).toBeGreaterThan(low);
+    expect(high).toBeCloseTo(terrain.peakHeight * 0.75, 6);
+  });
+
+  it("keeps lowlands low with lowland flatness, without moving the coast or the peak", () => {
+    const flat = small({ lowlandFlatness: 0.7, peakHeight: 12000 });
+    const { sea, peak } = flat.levels;
+    const at = (u: number) => heightOf(flat, sea + (peak - sea) * u);
+    expect(at(0)).toBe(0);
+    expect(at(1)).toBeCloseTo(12000, 6);
+    expect(at(0.25)).toBeCloseTo(12000 * (0.25 + 0.7 * (0.25 ** 3 - 0.25)), 6);
+    expect(at(0.5)).toBeCloseTo(2850, 6);
+    for (let u = 0; u < 1; u += 0.01) expect(at(u + 0.01)).toBeGreaterThanOrEqual(at(u));
+    // Only feet change: the land itself is the same.
+    expect(flat.terrainType).toEqual(small({ lowlandFlatness: 0, peakHeight: 12000 }).terrainType);
+  });
+
+  it("makes typical land much lower than a straight line does", () => {
+    const median = (terrain: TerrainData) => {
+      const heights = [...terrain.elevation].filter((e) => e >= terrain.levels.sea).map((e) => heightOf(terrain, e));
+      return heights.sort((a, b) => a - b)[heights.length >> 1]!;
     };
-    const mid = Math.floor(t.rows / 2);
-    expect(rowMean(mid)).toBeGreaterThan(rowMean(Math.floor(t.rows / 4)));
-    expect(rowMean(Math.floor(t.rows / 4))).toBeGreaterThan(rowMean(0));
-    expect(rowMean(mid)).toBeGreaterThan(rowMean(t.rows - 1));
-    expect(rowMean(mid)).toBeCloseTo(86, 0);
-    expect(rowMean(0)).toBeLessThan(10);
+    expect(median(small({ lowlandFlatness: 0.7 }))).toBeLessThan(0.6 * median(small({ lowlandFlatness: 0 })));
   });
 
-  it("is colder at higher elevation on the same row", () => {
-    const t = generateTerrain(small({ temperatureVariation: 0, elevationCooling: 40 }));
-    for (let r = 0; r < t.rows; r++) {
-      let lowest = -1;
-      let highest = -1;
-      for (let c = 0; c < t.cols; c++) {
-        const i = r * t.cols + c;
-        if (t.elevation[i]! < t.levels.sea) continue;
-        if (lowest < 0 || t.elevation[i]! < t.elevation[lowest]!) lowest = i;
-        if (highest < 0 || t.elevation[i]! > t.elevation[highest]!) highest = i;
-      }
-      if (lowest >= 0 && t.elevation[highest]! > t.elevation[lowest]!) {
-        expect(t.temperature[highest]!).toBeLessThan(t.temperature[lowest]!);
-      }
-    }
-  });
-
-  it("is wetter near water when the moisture boost is on", () => {
-    const t = generateTerrain(small({ waterMoistureBoost: 1, waterMoistureRange: 50 }));
-    let nearSum = 0;
-    let nearCount = 0;
-    let farSum = 0;
-    let farCount = 0;
-    for (let i = 0; i < t.cols * t.rows; i++) {
-      if (isWater(t.terrainType[i]!)) continue;
-      if (t.waterDistance[i]! < 20) {
-        nearSum += t.moisture[i]!;
-        nearCount++;
-      } else if (t.waterDistance[i]! > 80) {
-        farSum += t.moisture[i]!;
-        farCount++;
-      }
-    }
-    expect(nearCount).toBeGreaterThan(0);
-    expect(farCount).toBeGreaterThan(0);
-    expect(nearSum / nearCount).toBeGreaterThan(farSum / farCount);
-  });
-
-  it("gives every non-water sample a biome, mountains included, and water none", () => {
-    const t = generateTerrain(small({ mountainCoverage: 30 }));
-    for (let i = 0; i < t.cols * t.rows; i++) {
-      if (isWater(t.terrainType[i]!)) expect(t.biome[i]).toBe(Biome.None);
-      else expect(t.biome[i]).not.toBe(Biome.None);
-    }
-  });
-
-  it("turns every border sample into water at full edge falloff", () => {
-    const t = generateTerrain(small({ edgeFalloff: 1, waterCoverage: 35 }));
-    for (let c = 0; c < t.cols; c++) {
-      expect(isWater(t.terrainType[c]!)).toBe(true);
-      expect(isWater(t.terrainType[(t.rows - 1) * t.cols + c]!)).toBe(true);
-    }
-    for (let r = 0; r < t.rows; r++) {
-      expect(isWater(t.terrainType[r * t.cols]!)).toBe(true);
-      expect(isWater(t.terrainType[r * t.cols + t.cols - 1]!)).toBe(true);
-    }
-  });
-
-  it("keeps the shape of the world when resolution changes (without erosion)", () => {
-    const coarse = generateTerrain(small({ cellSize: 10, erosionAmount: 0 }));
-    const fine = generateTerrain(small({ cellSize: 5, erosionAmount: 0 }));
-    let agree = 0;
-    for (let r = 0; r < coarse.rows; r++) {
-      for (let c = 0; c < coarse.cols; c++) {
-        const a = coarse.elevation[r * coarse.cols + c]! < coarse.levels.sea;
-        const b = fine.elevation[2 * r * fine.cols + 2 * c]! < fine.levels.sea;
-        if (a === b) agree++;
-      }
-    }
-    expect(agree / (coarse.cols * coarse.rows)).toBeGreaterThan(0.9);
+  it("is 0 everywhere when the whole world is water", () => {
+    const terrain = small({ waterCoverage: 100 });
+    for (const e of terrain.elevation) expect(heightOf(terrain, e)).toBe(0);
   });
 });
 
-describe("terrain shape", () => {
-  // Mean absolute Laplacian of elevation over the samples selected: a measure of bumpiness.
-  function bumpiness(t: TerrainData, select: (i: number) => boolean): number {
-    let sum = 0;
-    let count = 0;
-    for (let r = 1; r < t.rows - 1; r++) {
-      for (let c = 1; c < t.cols - 1; c++) {
-        const i = r * t.cols + c;
-        if (!select(i)) continue;
-        const e = t.elevation;
-        sum += Math.abs(4 * e[i]! - e[i - 1]! - e[i + 1]! - e[i - t.cols]! - e[i + t.cols]!);
-        count++;
-      }
-    }
-    return sum / count;
-  }
-  const lowLand = (t: TerrainData) => (i: number) =>
-    t.elevation[i]! >= t.levels.sea && t.elevation[i]! < t.levels.sea + 0.25 * (1 - t.levels.sea);
+describe("temperature", () => {
+  const still = { temperatureNoise: 0 };
+  const cell = (terrain: TerrainData, col: number, row: number) => row * terrain.cols + col;
 
-  it("lowland flatness flattens plains without moving the coast or mountains", () => {
-    const shape = { width: 1000, height: 1000, erosionAmount: 0 };
-    const plain = generateTerrain(small({ ...shape, lowlandFlatness: 0 }));
-    const flat = generateTerrain(small({ ...shape, lowlandFlatness: 1 }));
-    for (let i = 0; i < plain.cols * plain.rows; i++) {
-      expect(flat.elevation[i]! < flat.levels.sea).toBe(plain.elevation[i]! < plain.levels.sea);
-      expect(flat.elevation[i]! >= flat.levels.mountain).toBe(plain.elevation[i]! >= plain.levels.mountain);
-    }
-    expect(bumpiness(flat, lowLand(flat))).toBeLessThan(bumpiness(plain, lowLand(plain)));
+  it("is one sea-level temperature everywhere by default, so only height sets the climate", () => {
+    const terrain = small({ ...still, seaLevelTemperature: 84 });
+    terrain.elevation.forEach((e, i) => {
+      expect(terrain.temperature[i]).toBeCloseTo(84 - (3.6 * heightOf(terrain, e)) / 1000, 3);
+    });
   });
 
-  it("erosion reshapes the terrain deterministically", () => {
-    const none = generateTerrain(small({ erosionAmount: 0 }));
-    const a = generateTerrain(small({ erosionAmount: 4 }));
-    const b = generateTerrain(small({ erosionAmount: 4 }));
-    expect(a.elevation).toEqual(b.elevation);
-    expect(a.elevation).not.toEqual(none.elevation);
+  it("cools sea level toward the top and bottom edges with latitude cooling", () => {
+    const config = makeConfig({ width: 400, height: 1000, cellSize: 10, seaLevelTemperature: 80, latitudeCooling: 70 });
+    expect(seaLevelTemperatureAt(config, 500)).toBe(80);
+    expect(seaLevelTemperatureAt(config, 0)).toBe(10);
+    expect(seaLevelTemperatureAt(config, 1000)).toBe(10);
+    expect(seaLevelTemperatureAt(config, 250)).toBeCloseTo(80 - 70 * 0.25, 10);
+    for (let y = 500; y < 1000; y += 50) expect(seaLevelTemperatureAt(config, y + 50)).toBeLessThan(seaLevelTemperatureAt(config, y));
+    expect(seaLevelTemperatureAt(makeConfig({ seaLevelTemperature: 80 }), 0)).toBe(80);
+  });
+
+  it("cools with height by exactly the lapse rate", () => {
+    const terrain = small({ ...still, lapseRate: 4, seaLevelTemperature: 70, latitudeCooling: 30 });
+    const config = makeConfig({ width: 800, height: 600, seaLevelTemperature: 70, latitudeCooling: 30 });
+    const row = 30;
+    const base = seaLevelTemperatureAt(config, (row + 0.5) * terrain.cellSize);
+    for (let col = 0; col < terrain.cols; col++) {
+      const i = cell(terrain, col, row);
+      const expected = base - (4 * heightOf(terrain, terrain.elevation[i]!)) / 1000;
+      expect(terrain.temperature[i]).toBeCloseTo(expected, 3);
+    }
+  });
+
+  it("puts the peak exactly lapse rate × peak height below sea level", () => {
+    const terrain = small({ ...still, lapseRate: 3.6, peakHeight: 24000, seaLevelTemperature: 84 });
+    const peak = terrain.elevation.indexOf(terrain.levels.peak);
+    expect(terrain.temperature[peak]).toBeCloseTo(84 - 86.4, 3);
+  });
+
+  it("does not depend on height when the lapse rate is 0", () => {
+    const terrain = small({ ...still, lapseRate: 0, latitudeCooling: 40 });
+    for (let row = 0; row < terrain.rows; row += 7) {
+      const first = terrain.temperature[cell(terrain, 0, row)];
+      for (let col = 1; col < terrain.cols; col++) expect(terrain.temperature[cell(terrain, col, row)]).toBe(first);
+    }
+  });
+
+  it("gives water sea-level temperature", () => {
+    const terrain = small({ ...still, seaLevelTemperature: 84 });
+    terrain.terrainType.forEach((type, i) => {
+      if (isWater(type as TerrainType)) expect(terrain.temperature[i]).toBeCloseTo(84, 3);
+    });
+  });
+
+  it("keeps variation within the knob", () => {
+    const flat = small({ lapseRate: 0, temperatureNoise: 0 });
+    const varied = small({ lapseRate: 0, temperatureNoise: 6 });
+    let moved = 0;
+    varied.temperature.forEach((t, i) => {
+      const delta = Math.abs(t - flat.temperature[i]!);
+      expect(delta).toBeLessThanOrEqual(6 + 1e-3);
+      moved = Math.max(moved, delta);
+    });
+    expect(moved).toBeGreaterThan(1);
+  });
+
+  it("never changes the land when climate knobs change", () => {
+    const a = small();
+    const b = small({ seaLevelTemperature: 50, latitudeCooling: 60, temperatureNoise: 20, lapseRate: 8 });
+    expect(b.elevation).toEqual(a.elevation);
+    expect(b.terrainType).toEqual(a.terrainType);
+    expect(b.temperature).not.toEqual(a.temperature);
   });
 });
 
-describe("lakes and rivers", () => {
-  const t = generateTerrain(small({ seed: 4, riverSourceArea: 5000 }));
-  const segments = t.rivers.length / RIVER_STRIDE;
-
-  it("forms rivers", () => {
-    expect(segments).toBeGreaterThan(0);
+describe("distance to water", () => {
+  it("measures straight and diagonal steps between cell centers", () => {
+    const terrain = drawn(["~....", ".....", "....."]);
+    const d = distanceToWater(terrain.cols, terrain.rows, 10, terrain.terrainType);
+    const at = (col: number, row: number) => d[row * terrain.cols + col]!;
+    expect(at(0, 0)).toBe(0);
+    expect(at(1, 0)).toBeCloseTo(10, 4);
+    expect(at(4, 0)).toBeCloseTo(40, 4);
+    expect(at(1, 1)).toBeCloseTo(10 * Math.SQRT2, 4);
+    expect(at(2, 2)).toBeCloseTo(20 * Math.SQRT2, 4);
+    expect(at(4, 2)).toBeCloseTo(20 * Math.SQRT2 + 20, 4);
   });
 
-  it("classifies river centerlines as water, deep when wide", () => {
-    for (let s = 0; s < segments; s++) {
-      const o = s * RIVER_STRIDE;
-      const x = (t.rivers[o]! + t.rivers[o + 2]!) / 2;
-      const y = (t.rivers[o + 1]! + t.rivers[o + 3]!) / 2;
-      const type = terrainTypeAt(t, x, y);
-      expect(isWater(type)).toBe(true);
-      if (t.rivers[o + 4]! >= t.levels.deepRiverWidth && type !== TerrainType.DeepWater) {
-        // A wide segment can only read as shallow if it runs through shallow lake or sea water.
-        expect(t.water[0]).toBeDefined();
-      }
-    }
+  it("finds the nearest of several bodies of water", () => {
+    const terrain = drawn(["~.......-"]);
+    const d = distanceToWater(terrain.cols, terrain.rows, 10, terrain.terrainType);
+    expect([...d]).toEqual([0, 10, 20, 30, 40, 30, 20, 10, 0]);
   });
 
-  it("makes rivers wider downstream", () => {
-    let narrowest = Infinity;
-    let widest = 0;
-    for (let s = 0; s < segments; s++) {
-      narrowest = Math.min(narrowest, t.rivers[s * RIVER_STRIDE + 4]!);
-      widest = Math.max(widest, t.rivers[s * RIVER_STRIDE + 4]!);
-    }
-    expect(widest).toBeGreaterThan(narrowest);
-  });
-
-  it("makes fewer rivers when the source area is larger", () => {
-    const fewer = generateTerrain(small({ seed: 4, riverSourceArea: 50000 }));
-    expect(fewer.rivers.length).toBeLessThan(t.rivers.length);
-  });
-
-  it("fills basins into lakes above sea level, more of them at a lower depth threshold", () => {
-    const lakeSamples = (terrain: TerrainData) =>
-      share(terrain, (i) => terrain.water[i]! > 0 && terrain.elevation[i]! >= terrain.levels.sea);
-    const many = generateTerrain(small({ seed: 4, lakeMinDepth: 0 }));
-    const none = generateTerrain(small({ seed: 4, lakeMinDepth: 0.2 }));
-    expect(lakeSamples(none)).toBe(0);
-    expect(lakeSamples(many)).toBeGreaterThan(0);
+  it("is infinite everywhere when there is no water", () => {
+    const terrain = small({ waterCoverage: 0 });
+    expect(terrain.distanceToWater.every((v) => v === Infinity)).toBe(true);
   });
 });
 
-describe("continuous terrain field", () => {
-  const t = generateTerrain(small({ seed: 3 }));
-  const at = (col: number, row: number) => [(col + 0.5) * t.cellSize, (row + 0.5) * t.cellSize] as const;
+describe("rainfall", () => {
+  const dry = { shoreRain: 0 };
 
-  it("returns the stored sample exactly at sample points", () => {
-    for (const [col, row] of [[0, 0], [10, 20], [t.cols - 1, t.rows - 1], [57, 3]] as const) {
-      const [x, y] = at(col, row);
-      const i = row * t.cols + col;
-      expect(elevationAt(t, x, y)).toBe(t.elevation[i]);
-      expect(terrainTypeAt(t, x, y)).toBe(t.terrainType[i]);
-      expect(biomeAt(t, x, y)).toBe(t.biome[i]);
+  it("spreads evenly from the driest to the wettest value at skew 0, whatever the noise settings", () => {
+    for (const noise of [{}, { persistence: 0.8, octaves: 6 }, { landformSize: 100 }]) {
+      const terrain = small({ ...dry, rainfallSkew: 0, driestRainfall: 5, wettestRainfall: 120, ...noise });
+      const sorted = terrain.rainfall.slice().sort();
+      expect(sorted[0]).toBe(5);
+      expect(sorted[sorted.length - 1]).toBe(120);
+      expect(sorted[Math.floor(sorted.length / 2)]).toBeCloseTo(62.5, 1);
+      expect(sorted[Math.floor(sorted.length / 4)]).toBeCloseTo(33.75, 1);
     }
   });
 
-  it("blends linearly between neighboring samples", () => {
-    const [x0, y] = at(20, 30);
-    const a = t.elevation[30 * t.cols + 20]!;
-    const b = t.elevation[30 * t.cols + 21]!;
-    expect(elevationAt(t, x0 + t.cellSize * 0.25, y)).toBeCloseTo(a + (b - a) * 0.25, 6);
-    expect(elevationAt(t, x0 + t.cellSize * 0.5, y)).toBeCloseTo((a + b) / 2, 6);
+  it("makes most places moderate to dry at skew 1, keeping the driest and wettest values", () => {
+    const terrain = small({ ...dry, rainfallSkew: 1, driestRainfall: 5, wettestRainfall: 120 });
+    const sorted = terrain.rainfall.slice().sort();
+    const at = (q: number) => sorted[Math.floor((sorted.length - 1) * q)]!;
+    expect(at(0)).toBe(5);
+    expect(at(1)).toBe(120);
+    expect(at(0.5)).toBeCloseTo(5 + 115 * 0.25, 1);
+    expect(at(0.25)).toBeCloseTo(5 + 115 * 0.0625, 1);
+    expect(at(0.9)).toBeCloseTo(5 + 115 * 0.81, 1);
   });
 
-  it("is continuous: tiny moves change values only slightly", () => {
-    for (let k = 0; k < 200; k++) {
-      const x = 3 + k * 2.37;
-      const y = 7 + k * 1.91;
-      expect(Math.abs(elevationAt(t, x, y) - elevationAt(t, x + 0.01, y))).toBeLessThan(0.01);
+  it("adds rain near water, fading to nothing at the shore rain range", () => {
+    const without = small(dry);
+    const withRain = small({ shoreRain: 30, shoreRainRange: 150 });
+    let boosted = 0;
+    withRain.rainfall.forEach((r, i) => {
+      const expected = 30 * Math.max(0, 1 - withRain.distanceToWater[i]! / 150);
+      expect(r - without.rainfall[i]!).toBeCloseTo(expected, 3);
+      if (expected > 0 && !isWater(withRain.terrainType[i] as TerrainType)) boosted++;
+    });
+    expect(boosted).toBeGreaterThan(0);
+  });
+
+  it("never changes the land or the temperature when rainfall knobs change", () => {
+    const a = small();
+    const b = small({ driestRainfall: 40, wettestRainfall: 300, shoreRain: 100, shoreRainRange: 500 });
+    expect(b.elevation).toEqual(a.elevation);
+    expect(b.temperature).toEqual(a.temperature);
+    expect(b.rainfall).not.toEqual(a.rainfall);
+  });
+});
+
+describe("biomes", () => {
+  it("puts known climates in the right biome", () => {
+    expect(classifyBiome(80, 120)).toBe(Biome.Rainforest);
+    expect(classifyBiome(80, 50)).toBe(Biome.Savanna);
+    expect(classifyBiome(80, 10)).toBe(Biome.Desert);
+    expect(classifyBiome(55, 15)).toBe(Biome.Grassland);
+    expect(classifyBiome(55, 60)).toBe(Biome.TemperateForest);
+    expect(classifyBiome(55, 90)).toBe(Biome.TemperateRainforest);
+    for (const rain of [0, 50, 300]) {
+      expect(classifyBiome(35, rain)).toBe(Biome.Taiga);
+      expect(classifyBiome(15, rain)).toBe(Biome.Tundra);
     }
   });
 
-  it("extends edge values beyond the outermost samples", () => {
-    expect(elevationAt(t, 0, 0)).toBe(t.elevation[0]);
-    expect(elevationAt(t, -50, -50)).toBe(t.elevation[0]);
-    expect(sampleField(t, t.temperature, 1e6, 1e6)).toBe(t.temperature[t.cols * t.rows - 1]);
+  it("follows the threshold table at the boundaries", () => {
+    expect(classifyBiome(68, 50)).toBe(Biome.Savanna);
+    expect(classifyBiome(67.9, 50)).toBe(Biome.TemperateForest);
+    expect(classifyBiome(41, 50)).toBe(Biome.TemperateForest);
+    expect(classifyBiome(40.9, 50)).toBe(Biome.Taiga);
+    expect(classifyBiome(23, 50)).toBe(Biome.Taiga);
+    expect(classifyBiome(22.9, 50)).toBe(Biome.Tundra);
+    expect(classifyBiome(80, 20)).toBe(Biome.Savanna);
+    expect(classifyBiome(80, 19.9)).toBe(Biome.Desert);
+    expect(classifyBiome(80, 100)).toBe(Biome.Savanna);
+    expect(classifyBiome(80, 100.1)).toBe(Biome.Rainforest);
+    expect(classifyBiome(55, 40)).toBe(Biome.TemperateForest);
+    expect(classifyBiome(55, 39.9)).toBe(Biome.Grassland);
+    expect(classifyBiome(55, 80)).toBe(Biome.TemperateForest);
+    expect(classifyBiome(55, 80.1)).toBe(Biome.TemperateRainforest);
   });
 
-  it("reports depth only for water", () => {
-    for (let k = 0; k < 500; k++) {
-      const x = (k * 7.3) % 500;
-      const y = (k * 3.1) % 400;
-      const depth = waterDepthAt(t, x, y);
-      if (isWater(terrainTypeAt(t, x, y))) expect(depth).toBeGreaterThan(0);
-      else expect(depth).toBe(0);
+  it("gives every land and mountain cell the biome of its own climate, and water none", () => {
+    for (const seed of [1, 2, 3]) {
+      const terrain = small({ seed });
+      let mountains = 0;
+      terrain.terrainType.forEach((type, i) => {
+        if (isWater(type as TerrainType)) return expect(terrain.biome[i]).toBe(Biome.None);
+        expect(terrain.biome[i]).toBe(classifyBiome(terrain.temperature[i]!, terrain.rainfall[i]!));
+        if (type === TerrainType.Mountain) mountains++;
+      });
+      expect(mountains).toBeGreaterThan(0);
     }
   });
 
-  it("puts the shoreline where signed water depth crosses zero", () => {
-    for (let i = 0; i < t.cols * t.rows; i++) {
-      const [x, y] = center(t, i);
-      const fieldWater = t.water[i]! > 0;
-      if (fieldWater) expect(isWater(terrainTypeAt(t, x, y))).toBe(true);
-    }
+  it("gives default worlds every biome, none of them rare", () => {
+    const counts = new Array<number>(9).fill(0);
+    for (let seed = 1; seed <= 5; seed++) for (const biome of generateTerrain(makeConfig({ seed })).biome) counts[biome]!++;
+    const land = counts.reduce((a, b) => a + b, 0) - counts[Biome.None]!;
+    for (let biome = 1; biome < counts.length; biome++) expect(counts[biome]! / land).toBeGreaterThan(0.01);
+  });
+
+  it("makes the highest peak far colder than lowland at its latitude, and never tropical", () => {
+    const terrain = small({ temperatureNoise: 0 });
+    const peak = terrain.elevation.indexOf(terrain.levels.peak);
+    const row = Math.floor(peak / terrain.cols);
+    const peakBiome = terrain.biome[peak]!;
+    const lowland = [...terrain.terrainType.subarray(row * terrain.cols, (row + 1) * terrain.cols)].findIndex(
+      (type, col) => type === TerrainType.Land && heightOf(terrain, terrain.elevation[row * terrain.cols + col]!) < 1000,
+    );
+    expect(lowland).toBeGreaterThanOrEqual(0);
+    expect(terrain.temperature[peak]).toBeLessThan(terrain.temperature[row * terrain.cols + lowland]! - 30);
+    expect([Biome.Tundra, Biome.Taiga, Biome.Grassland, Biome.TemperateForest, Biome.TemperateRainforest]).toContain(peakBiome);
   });
 });
 
-describe("biome lookup", () => {
-  it("follows the design table", () => {
-    expect(biomeFor(TemperatureBand.Hot, MoistureBand.Dry)).toBe(Biome.Desert);
-    expect(biomeFor(TemperatureBand.Hot, MoistureBand.Wet)).toBe(Biome.Rainforest);
-    expect(biomeFor(TemperatureBand.Temperate, MoistureBand.Moderate)).toBe(Biome.TemperateForest);
-    expect(biomeFor(TemperatureBand.Cold, MoistureBand.Dry)).toBe(Biome.Tundra);
-    expect(biomeFor(TemperatureBand.Cold, MoistureBand.Wet)).toBe(Biome.Taiga);
+describe("cell lookups", () => {
+  const terrain = small({ cellSize: 10 });
+
+  it("finds the cell that contains a point", () => {
+    expect(cellIndexAt(terrain, 0, 0)).toBe(0);
+    expect(cellIndexAt(terrain, 9.99, 9.99)).toBe(0);
+    expect(cellIndexAt(terrain, 10, 0)).toBe(1);
+    expect(cellIndexAt(terrain, 25, 31)).toBe(3 * terrain.cols + 2);
+  });
+
+  it("uses the nearest edge cell for points outside the grid", () => {
+    expect(cellIndexAt(terrain, -50, -50)).toBe(0);
+    expect(cellIndexAt(terrain, 1e6, 1e6)).toBe(terrain.cols * terrain.rows - 1);
+  });
+
+  it("reads each field from the containing cell", () => {
+    const i = cellIndexAt(terrain, 123, 456);
+    expect(terrainTypeAt(terrain, 123, 456)).toBe(terrain.terrainType[i]);
+    expect(elevationAt(terrain, 123, 456)).toBe(terrain.elevation[i]);
+    expect(heightAt(terrain, 123, 456)).toBe(heightOf(terrain, terrain.elevation[i]!));
+    expect(temperatureAt(terrain, 123, 456)).toBe(terrain.temperature[i]);
+    expect(rainfallAt(terrain, 123, 456)).toBe(terrain.rainfall[i]);
+    expect(biomeAt(terrain, 123, 456)).toBe(terrain.biome[i]);
+    expect(distanceToWaterAt(terrain, 123, 456)).toBe(terrain.distanceToWater[i]);
   });
 });
 
-describe("chamferDistance", () => {
-  it("measures orthogonal steps as 1 and diagonal steps as sqrt(2)", () => {
-    const cols = 7;
-    const rows = 7;
-    const middle = 3 * cols + 3;
-    const d = chamferDistance((i) => i === middle, cols, rows);
-    expect(d[middle]).toBe(0);
-    expect(d[3 * cols + 6]).toBe(3);
-    expect(d[0]).toBeCloseTo(3 * Math.SQRT2);
-    expect(d[1 * cols + 6]).toBeCloseTo(1 + 2 * Math.SQRT2);
+/** A hand-drawn grid: ~ deep water, - shallow water, . land, ^ mountain. */
+function drawn(picture: string[], cellSize = 10): TerrainData {
+  const codes: Record<string, TerrainType> = {
+    "~": TerrainType.DeepWater,
+    "-": TerrainType.ShallowWater,
+    ".": TerrainType.Land,
+    "^": TerrainType.Mountain,
+  };
+  const cols = picture[0]!.length;
+  const rows = picture.length;
+  const terrainType = Uint8Array.from(picture.join(""), (ch) => codes[ch]!);
+  const levels = { sea: 0.3, shallow: 0.2, mountain: 0.7, peak: 1 };
+  const n = cols * rows;
+  const flat = {
+    elevation: new Float32Array(n),
+    temperature: new Float32Array(n),
+    distanceToWater: new Float32Array(n),
+    rainfall: new Float32Array(n),
+    biome: new Uint8Array(n),
+  };
+  const size = { cols, rows, cellSize, width: cols * cellSize, height: rows * cellSize };
+  return { ...size, levels, peakHeight: 1000, lowlandFlatness: 0, terrainType, ...flat };
+}
+
+describe("countSpecks", () => {
+  // Cells are 10 u, so with a 900 square unit limit a patch of 8 cells or fewer is a speck.
+  it("finds no specks in a world of large patches", () => {
+    const terrain = drawn(["....~~~~", "....~~~~", "....~~~~", "....~~~~"]);
+    expect(countSpecks(terrain)).toEqual({ total: 0, byType: [0, 0, 0, 0] });
   });
 
-  it("returns Infinity everywhere when there are no sources", () => {
-    const d = chamferDistance(() => false, 3, 3);
-    expect([...d].every((v) => v === Infinity)).toBe(true);
-  });
-});
-
-describe("Rng.derive", () => {
-  it("gives the same stream for the same seed and label", () => {
-    const a = Rng.derive(5, "terrain");
-    const b = Rng.derive(5, "terrain");
-    for (let i = 0; i < 100; i++) expect(a.nextUint32()).toBe(b.nextUint32());
+  it("counts small patches by terrain type", () => {
+    const terrain = drawn([".........~", ".^......~~", "......-.~~", "..........", "...^^....."]);
+    expect(countSpecks(terrain).byType).toEqual([1, 1, 0, 2]);
   });
 
-  it("gives independent streams for different labels or seeds", () => {
-    const first = (rng: Rng) => Array.from({ length: 8 }, () => rng.nextUint32());
-    expect(first(Rng.derive(5, "terrain"))).not.toEqual(first(Rng.derive(5, "plants")));
-    expect(first(Rng.derive(5, "terrain"))).not.toEqual(first(Rng.derive(6, "terrain")));
+  it("treats cells touching at a corner as one patch", () => {
+    const terrain = drawn(["^.........", ".^........", "..^.......", "..........", ".........."]);
+    expect(countSpecks(terrain).byType[TerrainType.Mountain]).toBe(1);
   });
-});
 
-describe("cell cap", () => {
-  it("raises sample spacing so the terrain stays under the cap", () => {
-    const config = makeConfig({ width: 10000, height: 10000, cellSize: 2 });
-    const cells = Math.ceil(config.width / config.cellSize) * Math.ceil(config.height / config.cellSize);
-    expect(config.cellSize).toBe(5);
-    expect(cells).toBeLessThanOrEqual(MAX_TERRAIN_CELLS);
+  it("does not count a patch exactly at the size limit", () => {
+    const terrain = drawn(["^^^.......", "^^^.......", "^^^.......", "..........", ".........."]);
+    expect(countSpecks(terrain).total).toBe(0);
+    expect(countSpecks(terrain, 901).total).toBe(1);
+  });
+
+  it("finds few specks in default worlds", () => {
+    let total = 0;
+    for (let seed = 1; seed <= 5; seed++) total += countSpecks(generateTerrain(makeConfig({ seed }))).total;
+    expect(total / 5).toBeLessThan(10);
   });
 });

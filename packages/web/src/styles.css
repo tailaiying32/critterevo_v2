@@ -6,6 +6,8 @@
   --muted: #8a949e;
   --accent: #7cc47f;
   --warn: #e0b45c;
+  /* Background of controls and panels floating over the map. */
+  --overlay: rgb(14 16 19 / 0.8);
   color-scheme: dark;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 14px;
@@ -97,7 +99,42 @@ body,
   top: 12px;
   left: 12px;
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+/* Floating controls share the legend's translucent background. */
+.canvas-toolbar > * {
+  background: var(--overlay);
+}
+
+.canvas-toolbar select {
+  padding: 5px 8px;
+}
+
+.canvas-toolbar option {
+  background: var(--panel);
+}
+
+.toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  color: var(--text);
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.toggle:hover:not(:has(input:disabled)) {
+  border-color: var(--accent);
+}
+
+.toggle:has(input:disabled) {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .canvas-readout {
@@ -106,7 +143,7 @@ body,
   bottom: 12px;
   padding: 4px 8px;
   border-radius: 6px;
-  background: rgb(14 16 19 / 0.75);
+  background: var(--overlay);
   color: var(--muted);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 12px;
@@ -303,23 +340,7 @@ dd {
   line-height: 1.4;
 }
 
-/* ---------- Terrain view controls and legend ---------- */
-
-.canvas-toolbar select {
-  padding: 5px 8px;
-}
-
-.toggle {
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: #20262d;
-  color: var(--text);
-  cursor: pointer;
-}
+/* ---------- Legend ---------- */
 
 .legend {
   position: absolute;
@@ -328,13 +349,56 @@ dd {
   max-width: 220px;
   padding: 8px 10px;
   border-radius: 8px;
-  background: rgb(14 16 19 / 0.8);
+  background: var(--overlay);
   font-size: 12px;
   pointer-events: none;
 }
 
 .legend:empty {
   display: none;
+}
+
+.legend-gradient + .legend-gradient,
+.legend-gradient + .note,
+.note + .legend-items {
+  margin-top: 8px;
+}
+
+.legend-gradient .title {
+  margin-bottom: 4px;
+}
+
+.legend-gradient .bar {
+  width: 180px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.legend-gradient .ticks {
+  position: relative;
+  height: 15px;
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+/* Each label centers on its value; the first and last stay inside the bar's ends. */
+.legend-gradient .ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.legend-gradient .ticks span:first-child {
+  transform: none;
+}
+
+.legend-gradient .ticks span:last-child {
+  transform: translateX(-100%);
+}
+
+.legend .note {
+  margin: 4px 0 0;
+  color: var(--muted);
 }
 
 .legend-items {
@@ -358,23 +422,6 @@ dd {
   flex: none;
 }
 
-.legend-gradient .bar {
-  width: 180px;
-  height: 10px;
-  border-radius: 3px;
-}
-
-.legend-gradient .ends {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 3px;
-  color: var(--muted);
-}
-
-.legend-gradient .note {
-  margin-top: 4px;
-  color: var(--muted);
-}
 
 /* ---------- Sidebar extras ---------- */
 

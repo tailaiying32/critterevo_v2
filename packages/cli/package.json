@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "sim": "tsx src/index.ts",
+    "sheet": "tsx src/sheet.ts",
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {

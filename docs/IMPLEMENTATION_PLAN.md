@@ -99,66 +99,69 @@ Phases 0 through 7 build the world and the body. Evolution starts in phase 8. Ex
 
 **Decided**
 
-- Noise from the `simplex-noise` library, seeded from the world's random streams.
-- Continuous terrain field: samples every 5 units, blended smoothly, classified at any point. Drawn by a GPU shader, smooth at any zoom.
-- Default world 2000 by 2000 units (400 by 400 samples), 15% sea plus lakes and rivers, landform size 800.
-- Water, shallow water, mountain, and moisture thresholds by coverage. Temperature thresholds in absolute °F.
-- Mountains get biomes from the same lookup as land.
-- Edge falloff as a knob, off by default.
-- Hillshading.
-- Terrain shaping: gentle fractal noise, flattened lowlands, then simulated rain erosion. Ridged noise, elevation-dependent roughness, gradient damping, and domain warping were tried and dropped.
-- Lakes in basins protected from erosion. Rivers from drainage flow, as smooth capsules that widen downstream, ending in lakes, the sea, or off the map edge. Streams are shallow; wide rivers are deep and impassable.
-- A dedicated Settings page for every knob. The world page sidebar keeps only featured knobs.
+- Coarse grid, one value per cell, no blending between cells. Cells are 10 units by default, about one critter, so the default 2000 by 2000 world is 200 by 200 cells.
+- Pixel-art map style: one flat-colored pixel per cell, values in steps, and relief shading in three levels (DESIGN.md §14.1). Chosen over smooth rendering because plain fractal noise looks both blurry and bumpy when drawn smoothly; steps keep edges crisp and hide small bumps.
+- Noise from the `simplex-noise` library. Elevation, temperature noise, and moisture noise each have their own random stream.
+- Gentle noise: persistence × lacunarity well below 1, so land is smooth hills rather than bumps (DESIGN.md §4.2.2). Defaults chosen from the contact sheet: 5 octaves at persistence 0.3, about 6 specks per world.
+- Water, shallow water, and mountain shares set by coverage knobs.
+- Temperature in °F, rainfall in inches per year. Elevation maps to height in feet, and temperature drops with height by a lapse rate.
+- One sea-level temperature everywhere (84°F), so climate zones follow height. Latitude cooling is a knob, off by default.
+- Biome balance: peak height 24,000 ft, lowland flatness 0.4, rainfall skew 1, and rain near water +10 in within 60 units (DESIGN.md §4.2.3). Rain belts by latitude are deferred.
+- Biomes from Whittaker's real-world thresholds, applied to each cell's own temperature and rainfall. Tundra and taiga are set by temperature. Mountains get biomes.
 
-**Build** (DESIGN.md §4)
+**Already built on this branch**
 
-1. Per-system random streams: `Rng.derive(seed, label)`.
-2. Terrain and Climate knob groups in the registry. A cell-count cap keeps very large worlds from exhausting memory by raising cell size.
-3. `generateTerrain(config)` in `core`: fractal elevation, edge falloff, coverage thresholds, chamfer distance to water, moisture, temperature, biomes.
-4. Terrain held by `Simulation`, folded into the state hash, with continuous point lookups (`terrainTypeAt`, `biomeAt`, `temperatureAt`, and others) for later phases.
-5. Terrain sent to the main thread once per world as transferable typed arrays.
-6. Renderer: a GPU shader that blends and classifies the field per pixel, with hillshading.
-8. Settings page with search, per-group reset, import, export. Featured knobs in the sidebar.
-9. Hydraulic erosion, priority-flood drainage, lakes, signed water depth, flow accumulation, river tracing and smoothing, river point queries, river rendering, and a "generating" indicator.
-7. CLI prints a terrain summary: grid size, generation time, terrain type shares, biome shares, temperature range.
+- `Rng.derive(seed, label)` for per-system random streams.
+- `simplex-noise` installed in `core`.
+- Settings page with search, per-group reset, import, and export. Featured knobs in the sidebar.
+- A cell-count cap that raises cell size so very large worlds can't exhaust memory.
+
+**Build** (DESIGN.md §4), in order
+
+1. **Elevation and terrain types.** `generateTerrain(config)` in `core`: the grid, fractal elevation, coverage thresholds, and height. Terrain and Climate knob groups in the registry. Terrain held by `Simulation` and folded into the state hash, with cell lookups (`terrainTypeAt`, and later `temperatureAt`, `rainfallAt`, `biomeAt`) for later phases. Sent to the main thread once per world as transferable typed arrays, baked to a texture, and drawn under everything. CLI prints a terrain summary.
+2. **Smoothness tuning.** `npm run sheet` writes an HTML contact sheet: a few seeds × octaves (3, 4, 5) × persistence (0.5, 0.4, 0.35, 0.3), in terrain-type and elevation views, with speck counts averaged over 20 seeds. Pick defaults by eye. Add the elevation cleanup pass only if tuning the noise is not enough.
+3. **Temperature.** Sea-level temperature, noise, cooling with height, and optional latitude cooling.
+4. **Rainfall.** Chamfer distance to water, moisture noise converted to rainfall by rank, and extra rain near water.
+5. **Biomes.** The Whittaker lookup table, and the biome view as the default view. The table of per-biome parameters (plant growth, movement cost) arrives with Phase 3 and Phase 4, when its values are decided.
+
+The CLI terrain summary grows with each step: grid size, generation time, terrain type shares, speck count, temperature and rainfall ranges, and biome shares.
 
 **Debug tools**
 
-- View selector: biome (default), elevation, temperature, moisture, terrain type.
-- Relief shading toggle.
+- Map views, all stepped: biome (default), terrain type, elevation (8 height bands, 3 depth bands), temperature (9°F steps from freezing, blue below and red above), rainfall (10 inch steps of one blue). Temperature and rainfall steps put every biome threshold on a step edge.
+- Relief toggle, on by default: shading from elevation in three levels laid over the biome, terrain type, and elevation views, with gentle slopes left plain. Not offered for temperature and rainfall, where shading would change the colors that carry the values.
 - Legend for the current view.
-- Hover readout: cell coordinates, terrain type, biome, elevation, temperature, moisture, distance to water.
+- Hover readout: cell coordinates, terrain type, biome, elevation, height in feet, temperature, rainfall, distance to water.
+- Smoothness contact sheet (step 2).
+- Optional: a Whittaker chart plotting every land cell by temperature and rainfall over the biome regions. Shows at a glance that every cell is classified correctly, and what range of climates the world produces.
 
 **Automated tests**
 
-- Same seed gives identical grids. Different seeds give different grids.
+- Same seed gives the same grid. Different seeds give different grids.
 - Water, shallow water, and mountain shares match their coverage knobs.
-- Temperature rises toward the middle row and falls with elevation.
-- Moisture is higher near water when the boost is on.
-- Every non-water cell has a biome. Water cells have none.
-- Full edge falloff turns every border cell into water.
-- Random streams with different labels are independent.
+- The tallest cell is exactly the peak height. Water cells are at height 0.
+- With temperature noise at 0, every cell is the sea-level temperature minus exactly the lapse rate times its height. Latitude cooling, when on, lowers sea level toward the top and bottom edges.
+- Rainfall spans the driest to wettest range, spread evenly at skew 0 and mostly moderate to dry at skew 1, and is higher near water when rain near water is on.
+- Lowland flatness keeps the coast at 0 and the peak at the peak height, never reverses height order, and leaves the land's shape unchanged.
+- Every land and mountain cell's biome equals the lookup of its own temperature and rainfall. Water cells have no biome.
+- The lookup puts known climates in the right biome: 80°F and 120 in is rainforest, 55°F and 15 in is grassland, 35°F is taiga, and 15°F is tundra at any rainfall.
+- Default settings produce few specks across several seeds.
+- Map views use only their step colors, put every biome threshold on a step edge, and shade in a few flat levels.
 
 **Manual test checklist**
 
 - [ ] Several seeds produce believable landscapes: continents, lakes, ranges.
-- [ ] The temperature view shows a clear latitude gradient, and mountains read as cold.
-- [ ] Biomes form sensible bands: tundra near the edges, rainforest and desert near the middle.
-- [ ] Mountains show alpine biomes such as tundra or taiga where cold.
+- [ ] Every view is crisp pixels in flat steps, with no blur, at any zoom. Hills read clearly with relief on, and gentle slopes show no bumpy texture.
+- [ ] Temperature and rainfall band edges line up with biome borders.
+- [ ] The temperature view is warmest along the coasts and cools steadily up every mountain.
+- [ ] Biomes form zones up every mountain: savanna and desert along warm coasts, grassland and forest on the slopes, taiga higher, tundra on the highest summits.
+- [ ] Turning on latitude cooling brings back cold top and bottom edges.
+- [ ] Lapse rate 0 removes the cold mountains. Raising it spreads alpine biomes down the slopes.
+- [ ] Hovering any cell shows a biome that matches the DESIGN.md §4.4 table for its temperature and rainfall.
+- [ ] Dry biomes turn greener near coasts and lakeshores.
+- [ ] Coverage knobs hold across seeds and noise settings: 30% water looks like roughly a third of the map every time.
+- [ ] Changing cell size changes detail but not the overall shape of the world.
 - [ ] Each terrain and climate knob visibly changes the world in the expected direction.
-- [ ] Coverage knobs hold across seeds: 35% water looks like roughly a third of the map every time.
-- [ ] Edge falloff at 1 produces an island surrounded by ocean.
-- [ ] Changing terrain resolution changes detail but not the overall shape of the world.
-- [ ] Zooming all the way in shows smooth coastlines and biome borders, no squares.
-- [ ] Hills and mountains look eroded, with gullies running down them, not covered in bumps. Rain erosion at 0 shows the un-eroded terrain for comparison.
-- [ ] Rivers start in highlands, merge, widen downstream, and end in lakes, the sea, or at the map edge.
-- [ ] Hovering over a river reports its width, and wide rivers read as deep water.
-- [ ] Lakes sit in basins at different heights, including some in the highlands.
-- [ ] River source area, river width, and lake depth threshold visibly change the water network.
-- [ ] Dry biomes show greener strips along rivers.
-- [ ] The hover readout agrees with what is drawn under the cursor, including right at coastlines.
-- [ ] The Settings page lists every knob, search filters them, and Generate returns to the world.
-- [ ] Hillshading makes mountain ranges easy to read, and can be turned off.
 - [ ] The CLI terrain summary matches what the browser shows for the same seed.
 
 **Done when**: you're happy with how worlds look across a range of seeds.

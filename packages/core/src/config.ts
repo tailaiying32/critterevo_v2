@@ -81,7 +81,7 @@ export function parseConfig(input: unknown): ParsedConfig {
 
   const constrained = applyConstraints({ ...(config as WorldConfig) });
   if (constrained.cellSize !== config["cellSize"]) {
-    warnings.push(`"Terrain resolution" was raised to ${constrained.cellSize} to keep the terrain under ${MAX_TERRAIN_CELLS.toLocaleString("en-US")} samples.`);
+    warnings.push(`"${KNOBS.cellSize.label}" was raised to ${constrained.cellSize} to keep the terrain under ${MAX_TERRAIN_CELLS.toLocaleString("en-US")} cells.`);
   }
   return { config: constrained, warnings };
 }

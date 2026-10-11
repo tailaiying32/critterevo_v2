@@ -97,30 +97,13 @@ function fnv1aBytes(bytes: Uint8Array, seed: number): number {
 
 /** Hash of every terrain field, computed once per world. */
 function hashTerrain(terrain: TerrainData): number {
-  const levels = terrain.levels;
-  const levelBits = new Float64Array([
-    levels.sea,
-    levels.deep,
-    levels.maxDepth,
-    levels.mountain,
-    levels.dry,
-    levels.wet,
-    levels.cold,
-    levels.hot,
-    levels.deepRiverWidth,
-  ]);
+  const { sea, shallow, mountain, peak } = terrain.levels;
+  const levelBits = new Float64Array([sea, shallow, mountain, peak, terrain.peakHeight, terrain.lowlandFlatness]);
   let hash = fnv1aWords([terrain.cols, terrain.rows, terrain.cellSize, terrain.width, terrain.height]);
   hash = fnv1aBytes(new Uint8Array(levelBits.buffer), hash);
-  for (const field of [
-    terrain.elevation,
-    terrain.water,
-    terrain.rivers,
-    terrain.temperature,
-    terrain.moisture,
-    terrain.waterDistance,
-    terrain.terrainType,
-    terrain.biome,
-  ]) {
+  const { elevation, terrainType, temperature, distanceToWater, rainfall, biome } = terrain;
+  const fields = [elevation, terrainType, temperature, distanceToWater, rainfall, biome];
+  for (const field of fields) {
     hash = fnv1aBytes(new Uint8Array(field.buffer, field.byteOffset, field.byteLength), hash);
   }
   return hash;

@@ -44,4 +44,11 @@ describe("Rng", () => {
       expect(v).toBeLessThan(6);
     }
   });
+
+  it("derive() gives the same stream for the same seed and label, and different ones otherwise", () => {
+    const first = (rng: Rng) => Array.from({ length: 8 }, () => rng.nextUint32());
+    expect(first(Rng.derive(5, "terrain"))).toEqual(first(Rng.derive(5, "terrain")));
+    expect(first(Rng.derive(5, "terrain"))).not.toEqual(first(Rng.derive(5, "plants")));
+    expect(first(Rng.derive(5, "terrain"))).not.toEqual(first(Rng.derive(6, "terrain")));
+  });
 });

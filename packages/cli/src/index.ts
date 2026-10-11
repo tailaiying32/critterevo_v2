@@ -5,12 +5,17 @@
  *   npm run sim -- --config my-world.json --ticks 0
  */
 import {
+  Biome,
   BIOME_NAMES,
+  countSpecks,
+  heightOf,
+  isWater,
   parseConfig,
   Simulation,
+  SPECK_AREA,
   TERRAIN_TYPE_NAMES,
-  isWater,
   type TerrainData,
+  type TerrainType,
   type WorldConfig,
 } from "@critter-evo/core";
 import { readFileSync } from "node:fs";
@@ -65,30 +70,51 @@ printTerrainSummary(sim.terrain);
 
 function printTerrainSummary(terrain: TerrainData): void {
   const n = terrain.cols * terrain.rows;
-  console.log(`terrain     ${terrain.cols} x ${terrain.rows} samples, ${terrain.cellSize} u apart`);
+  const { sea, shallow, mountain, peak } = terrain.levels;
+  const level = (value: number) => (Number.isFinite(value) ? value.toFixed(3) : "none");
+  console.log(`terrain     ${terrain.cols} x ${terrain.rows} cells, ${terrain.cellSize} u each`);
+  console.log(`elevation   deep below ${level(shallow)}, sea level ${level(sea)}, mountains from ${level(mountain)}, peak ${level(peak)}`);
+  const landHeights = [...terrain.elevation].filter((e) => e >= sea).map((e) => heightOf(terrain, e));
+  landHeights.sort((a, b) => a - b);
+  const median = landHeights.length ? Math.round(landHeights[landHeights.length >> 1]!).toLocaleString("en-US") : "–";
+  console.log(`height      peak ${terrain.peakHeight.toLocaleString("en-US")} ft, median land ${median} ft`);
+  const counts = new Array<number>(TERRAIN_TYPE_NAMES.length).fill(0);
+  for (let i = 0; i < n; i++) counts[terrain.terrainType[i]!]!++;
+  const specks = countSpecks(terrain);
+  console.log("\nterrain type (share of cells, specks)");
+  TERRAIN_TYPE_NAMES.forEach((name, i) =>
+    console.log(`  ${name.padEnd(14)}${((100 * counts[i]!) / n).toFixed(1).padStart(5)}%${String(specks.byType[i]).padStart(6)}`),
+  );
+  console.log(`\nspecks      ${specks.total} (patches under ${SPECK_AREA} square units)`);
 
-  const typeCounts = new Array<number>(TERRAIN_TYPE_NAMES.length).fill(0);
-  const biomeCounts = new Array<number>(BIOME_NAMES.length).fill(0);
-  let minT = Infinity;
-  let maxT = -Infinity;
-  let land = 0;
-  for (let i = 0; i < n; i++) {
-    typeCounts[terrain.terrainType[i]!]!++;
-    if (!isWater(terrain.terrainType[i]!)) {
-      land++;
-      biomeCounts[terrain.biome[i]!]!++;
-    }
-    minT = Math.min(minT, terrain.temperature[i]!);
-    maxT = Math.max(maxT, terrain.temperature[i]!);
+  const temperature = landStats(terrain, terrain.temperature);
+  if (temperature) console.log(`temperature ${temperature} °F on land`);
+  const rainfall = landStats(terrain, terrain.rainfall);
+  if (rainfall) console.log(`rainfall    ${rainfall} in a year on land`);
+
+  const biomes = new Array<number>(BIOME_NAMES.length).fill(0);
+  for (const biome of terrain.biome) biomes[biome]!++;
+  const land = n - biomes[Biome.None]!;
+  if (land > 0) {
+    console.log("\nbiome (share of land)");
+    BIOME_NAMES.forEach((name, biome) => {
+      if (biome !== Biome.None) console.log(`  ${name.padEnd(22)}${((100 * biomes[biome]!) / land).toFixed(1).padStart(5)}%`);
+    });
   }
+}
 
-  const pct = (count: number, total: number) => `${((100 * count) / Math.max(1, total)).toFixed(1).padStart(5)}%`;
-  console.log(`temperature ${minT.toFixed(0)}°F to ${maxT.toFixed(0)}°F`);
-  console.log("\nterrain type (share of samples)");
-  TERRAIN_TYPE_NAMES.forEach((name, i) => console.log(`  ${name.padEnd(22)}${pct(typeCounts[i]!, n)}`));
-  console.log("\nbiome (share of land samples)");
-  BIOME_NAMES.forEach((name, i) => {
-    if (i === 0) return;
-    console.log(`  ${name.padEnd(22)}${pct(biomeCounts[i]!, land)}`);
+/** "min to max, mean x" of a field over land, or null if there is no land. */
+function landStats(terrain: TerrainData, field: Float32Array): string | null {
+  let min = Infinity;
+  let max = -Infinity;
+  let total = 0;
+  let land = 0;
+  field.forEach((v, i) => {
+    if (isWater(terrain.terrainType[i] as TerrainType)) return;
+    min = Math.min(min, v);
+    max = Math.max(max, v);
+    total += v;
+    land++;
   });
+  return land > 0 ? `${min.toFixed(1)} to ${max.toFixed(1)}, mean ${(total / land).toFixed(1)}` : null;
 }

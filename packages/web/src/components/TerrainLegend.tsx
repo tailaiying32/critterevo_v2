@@ -1,100 +1,128 @@
-import { isWater } from "@critter-evo/core";
-import { useMemo, useSyncExternalStore } from "react";
 import {
-  categoricalLegend,
-  cssGradient,
-  ELEVATION_STOPS,
-  MOISTURE_STOPS,
-  TEMPERATURE_RANGE,
-  TEMPERATURE_STOPS,
-  TERRAIN_VIEWS,
+  CLIMATE_WATER,
+  isWater,
+  LAND_HEIGHT_STEPS,
+  RAINFALL_STEPS,
+  TEMPERATURE_STEPS,
+  WATER_DEPTH_STEPS,
+  type ColorStep,
+  type TerrainData,
+  type TerrainType,
   type TerrainView,
-} from "../render/terrainColors";
+} from "@critter-evo/core";
+import { useMemo, useSyncExternalStore } from "react";
+import { biomeLegend, cssColor, cssSteps, stepPosition, terrainTypeLegend } from "../render/terrainColors";
 import type { SimClient } from "../sim/SimClient";
-
-export function ViewControls({
-  view,
-  relief,
-  onViewChange,
-  onReliefChange,
-}: {
-  view: TerrainView;
-  relief: boolean;
-  onViewChange: (view: TerrainView) => void;
-  onReliefChange: (relief: boolean) => void;
-}) {
-  return (
-    <>
-      <select value={view} onChange={(e) => onViewChange(e.target.value as TerrainView)} title="Terrain view">
-        {TERRAIN_VIEWS.map((v) => (
-          <option key={v.value} value={v.value}>
-            {v.label}
-          </option>
-        ))}
-      </select>
-      <label className="toggle" title="Shade terrain by slope so ranges read as 3D">
-        <input type="checkbox" checked={relief} onChange={(e) => onReliefChange(e.target.checked)} />
-        Relief
-      </label>
-    </>
-  );
-}
 
 /** Legend for the current terrain view. */
 export function TerrainLegend({ client, view }: { client: SimClient; view: TerrainView }) {
-  const status = useSyncExternalStore(client.subscribe, client.getStatus);
-  const terrain = status.terrain;
+  // Select only the terrain, so the legend re-renders per world, not per frame.
+  const terrain = useSyncExternalStore(client.subscribe, () => client.getStatus().terrain);
+  return <div className="legend">{terrain && <LegendBody terrain={terrain} view={view} />}</div>;
+}
 
-  // The actual temperature range of this world, shown alongside the fixed color scale.
-  const worldRange = useMemo(() => {
-    if (!terrain) return null;
-    let min = Infinity;
-    let max = -Infinity;
-    for (let i = 0; i < terrain.temperature.length; i++) {
-      if (isWater(terrain.terrainType[i]!)) continue;
-      min = Math.min(min, terrain.temperature[i]!);
-      max = Math.max(max, terrain.temperature[i]!);
-    }
-    return Number.isFinite(min) ? { min, max } : null;
-  }, [terrain]);
+function LegendBody({ terrain, view }: { terrain: TerrainData; view: TerrainView }) {
+  const temperatureRange = useMemo(() => landRange(terrain, terrain.temperature), [terrain]);
+  const rainfallRange = useMemo(() => landRange(terrain, terrain.rainfall), [terrain]);
+  switch (view) {
+    case "biome":
+      return <Swatches items={biomeLegend()} />;
+    case "terrain":
+      return <Swatches items={terrainTypeLegend()} />;
+    case "elevation":
+      return (
+        <>
+          <StepBar
+            title="Land height"
+            steps={LAND_HEIGHT_STEPS}
+            ticks={[
+              [0, "sea level"],
+              [1, `${terrain.peakHeight.toLocaleString("en-US")} ft`],
+            ]}
+          />
+          <StepBar
+            title="Water depth"
+            steps={WATER_DEPTH_STEPS}
+            ticks={[
+              [0, "sea level"],
+              [1, "deepest"],
+            ]}
+          />
+        </>
+      );
+    case "temperature":
+      return (
+        <>
+          <StepBar title="Mean annual temperature" steps={TEMPERATURE_STEPS} ticks={[-22, 32, 95].map((t) => [t, formatF(t)])} />
+          {temperatureRange && (
+            <p className="note">
+              Land in this world: {formatF(temperatureRange.min)} to {formatF(temperatureRange.max)}
+            </p>
+          )}
+          <Swatches items={[{ label: "Water", color: cssColor(CLIMATE_WATER) }]} />
+        </>
+      );
+    case "rainfall":
+      return (
+        <>
+          <StepBar title="Annual rainfall" steps={RAINFALL_STEPS} ticks={[0, 50, 100, 150].map((r) => [r, formatInches(r)])} />
+          {rainfallRange && (
+            <p className="note">
+              Land in this world: {formatInches(rainfallRange.min)} to {formatInches(rainfallRange.max)}
+            </p>
+          )}
+          <Swatches items={[{ label: "Water", color: cssColor(CLIMATE_WATER) }]} />
+        </>
+      );
+  }
+}
 
-  const items = categoricalLegend(view);
-
+function Swatches({ items }: { items: { label: string; color: string }[] }) {
   return (
-    <div className="legend">
-      {items.length > 0 && (
-        <ul className="legend-items">
-          {items.map((item) => (
-            <li key={item.label}>
-              <span className="swatch" style={{ background: item.color }} />
-              {item.label}
-            </li>
-          ))}
-        </ul>
-      )}
-      {view === "temperature" && (
-        <Gradient
-          gradient={cssGradient(TEMPERATURE_STOPS)}
-          left={`${TEMPERATURE_RANGE.min}°F`}
-          right={`${TEMPERATURE_RANGE.max}°F`}
-          note={worldRange ? `Land in this world: ${worldRange.min.toFixed(0)}°F to ${worldRange.max.toFixed(0)}°F` : undefined}
-        />
-      )}
-      {view === "elevation" && <Gradient gradient={cssGradient(ELEVATION_STOPS)} left="Sea level" right="Highest peak" note="Water shaded by depth" />}
-      {view === "moisture" && <Gradient gradient={cssGradient(MOISTURE_STOPS)} left="Driest" right="Wettest" />}
+    <ul className="legend-items">
+      {items.map((item) => (
+        <li key={item.label}>
+          <span className="swatch" style={{ background: item.color }} />
+          {item.label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** A stepped color bar with labels at chosen values along it. */
+function StepBar({ title, steps, ticks }: { title: string; steps: readonly ColorStep[]; ticks: [value: number, label: string][] }) {
+  return (
+    <div className="legend-gradient">
+      <div className="title">{title}</div>
+      <div className="bar" style={{ background: cssSteps(steps) }} />
+      <div className="ticks">
+        {ticks.map(([value, label]) => (
+          <span key={label} style={{ left: `${stepPosition(steps, value) * 100}%` }}>
+            {label}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
 
-function Gradient({ gradient, left, right, note }: { gradient: string; left: string; right: string; note?: string | undefined }) {
-  return (
-    <div className="legend-gradient">
-      <div className="bar" style={{ background: gradient }} />
-      <div className="ends">
-        <span>{left}</span>
-        <span>{right}</span>
-      </div>
-      {note && <div className="note">{note}</div>}
-    </div>
-  );
+function formatF(value: number): string {
+  return `${Math.round(value)}°F`.replace("-", "−");
+}
+
+function formatInches(value: number): string {
+  return `${Math.round(value)} in`;
+}
+
+/** Smallest and largest value of a field over land, or null if there is no land. */
+function landRange(terrain: TerrainData, field: Float32Array): { min: number; max: number } | null {
+  let min = Infinity;
+  let max = -Infinity;
+  field.forEach((v, i) => {
+    if (isWater(terrain.terrainType[i] as TerrainType)) return;
+    min = Math.min(min, v);
+    max = Math.max(max, v);
+  });
+  return Number.isFinite(min) ? { min, max } : null;
 }
