@@ -35,8 +35,8 @@ Design principles:
 | Terrain thresholds | By coverage: water, shallow water, and mountain shares are knobs | Decided |
 | Climate units | Mean annual temperature in °F; moisture as annual rainfall in inches | Decided |
 | Elevation cooling | Elevation maps to height in feet; temperature drops by a lapse rate (default Earth's 3.6°F per 1,000 ft) | Decided |
-| Temperature | One sea-level temperature everywhere, so climate zones follow height, like the zones up a mountain. Latitude cooling is a knob, off by default | Decided |
-| Biome balance | Tall peaks, lowlands flattened in height, rainfall skewed so most land is moderate to dry, light rain near water | Decided |
+| Temperature | One sea-level temperature everywhere (70°F), so climate zones follow height, like the zones up a mountain. Latitude cooling is a knob, off by default | Decided |
+| Biome balance | Tall peaks, lowlands flattened in height, rainfall skewed so most land is moderate to dry, wetter shores and drier interiors | Decided |
 | Biomes | Temperature × rainfall lookup with Whittaker's real-world thresholds, on each cell's own climate. Tundra and taiga are set by temperature | Decided |
 | Mountain biomes | Mountains get biomes from the same lookup as land | Decided |
 | Terrain rendering | Pixel-art style: baked to a texture once per world, one flat-colored pixel per cell, values in steps, and relief shading in three levels | Decided |
@@ -159,7 +159,7 @@ Terrain is generated once per world by a pure function of the config and seed, a
 4. **Height.** With `u = (elevation − sea level) / (highest elevation − sea level)`, height above sea level in feet is `(u + flatness × (u³ − u)) × peak height`. The coast stays at 0 and the tallest point at exactly *peak height*, while *lowland flatness* pulls the land between toward sea level, as on Earth, where most land is low. It changes height, and so temperature, but not the shape of the land. Water is at height 0.
 5. **Distance to water.** A two-pass chamfer distance transform gives each cell its distance to the nearest water cell.
 6. **Temperature.** `T = seaLevelTemperature + noise × temperatureVariation − lapseRate × height / 1000`. Sea level is the same temperature everywhere, so height alone sets the climate and biomes form zones up every mountain. *Latitude cooling* (off by default) can bring back cold edges: it subtracts `latitudeCooling × lat²`, with `lat` at 0 on the middle row and 1 at the top and bottom edges. A polynomial, not a cosine, keeps it identical across engines.
-7. **Rainfall.** Moisture noise is converted to rainfall by rank, so the spread from the *driest rainfall* to the *wettest rainfall* knob holds whatever the noise settings, the same idea as coverage. With `r` the rank as a fraction, rainfall is `driest + (wettest − driest) × (r + skew × (r² − r))`: at *rainfall skew* 0 it is spread evenly, and at 1 most land is moderate to dry and very wet places are rare, as on Earth. Then *rain near water* is added, fading linearly to zero at the *shore rain range* from water.
+7. **Rainfall.** Wetness is moisture noise minus *inland drying*, which grows with distance from water up to the *inland drying range*, so interiors are drier than shores, as on real continents. Wetness is converted to rainfall by rank, so the spread from the *driest rainfall* to the *wettest rainfall* knob holds whatever the noise settings, the same idea as coverage. With `r` the rank as a fraction, rainfall is `driest + (wettest − driest) × (r + skew × (r² − r))`: at *rainfall skew* 0 it is spread evenly, and at 1 most land is moderate to dry and very wet places are rare, as on Earth. Then *rain near water* is added, fading linearly to zero at the *shore rain range* from water.
 8. **Biomes.** Each land and mountain cell gets the biome from §4.4 for its own final temperature and rainfall. Nothing else feeds in, and nothing is smoothed afterward, so a cell's biome always matches its climate.
 
 ### 4.2.2 Smooth landscapes
@@ -179,31 +179,34 @@ Starting values, tuned in Phase 2. The noise defaults were chosen from the conta
 | Knob | Group | Default |
 |---|---|---|
 | Cell size | World | 10 units |
-| Landform size | Terrain | 600 units |
+| Landform size | Terrain | 900 units |
 | Octaves | Terrain | 5 |
 | Persistence | Terrain | 0.3 |
 | Lacunarity | Terrain | 2 |
 | Water coverage | Terrain | 30% |
 | Shallow share of water | Terrain | 25% |
 | Mountain coverage | Terrain | 10% |
-| Peak height | Climate | 24,000 ft |
-| Lowland flatness | Climate | 0.4 |
+| Peak height | Climate | 30,000 ft |
+| Lowland flatness | Climate | 0.85 |
 | Lapse rate | Climate | 3.6°F per 1,000 ft |
-| Sea-level temperature | Climate | 84°F |
+| Sea-level temperature | Climate | 70°F |
 | Latitude cooling | Climate | 0°F (off) |
 | Temperature variation | Climate | ±5°F |
 | Driest rainfall, wettest rainfall | Climate | 5, 120 in per year |
 | Rainfall skew | Climate | 1 |
-| Rain near water | Climate | +10 in per year |
-| Shore rain range | Climate | 60 units |
+| Rain near water | Climate | +40 in per year |
+| Shore rain range | Climate | 100 units |
+| Inland drying | Climate | 0.25 |
+| Inland drying range | Climate | 200 units |
 
-With these defaults the tallest peak is 86°F colder than sea level, about −2°F, so climate zones ring every mountain: savanna and desert along the warm coasts, grassland and forest on the slopes, taiga higher up, and tundra on the highest summits.
+With these defaults the tallest peak is 108°F colder than sea level, about −38°F, so climate zones ring every mountain: a thin fringe of savanna and rainforest along the warmest shores, broad grassland and forest plains, taiga up the slopes, and tundra on the summits. Sea level sits just above the 68°F tropical line, so only land within about 550 ft of sea level is tropical.
 
-The climate defaults were tuned for a balanced mix of biomes. Averaged over 10 seeds, land is about 2% tundra, 11% taiga, 26% grassland, 12% temperate forest, 9% temperate rainforest, 13% desert, 23% savanna, and 5% rainforest. These settings matter most:
+The climate defaults were tuned for a balanced mix of biomes. Averaged over 8 seeds, land is about 10% tundra, 13% taiga, 38% grassland, 16% temperate forest, 8% temperate rainforest, 1% desert, 9% savanna, and 5% rainforest. These settings matter most:
 
-- **Peak height and lowland flatness** decide how much land sits in each climate zone, since height alone sets temperature. With Earth's lapse rate, cold zones need tall peaks: with 12,000 ft peaks there is no tundra at all. Lowland flatness keeps most land low enough to stay warm.
+- **Peak height, lowland flatness, and landform size** decide how much land sits in each climate zone, since height alone sets temperature, and how much of it is plains. With Earth's lapse rate, cold zones need tall peaks: with 12,000 ft peaks there is no tundra at all. Lowland flatness 0.85 and 900 unit landforms leave about a fifth of the land as broad, flat plains with separate mountains rising out of them; plain noise alone gives almost none.
+- **Sea-level temperature** sets how much of the world is tropical. Below 68°F there are no tropical biomes at all; at 70°F they are a thin fringe along the shores.
 - **Rainfall skew** makes very wet places rare. With rainfall spread evenly, as much land gets 100 to 120 inches as gets 5 to 25, and temperate rainforest covers a fifth of the land.
-- **Light rain near water.** With 30% of the world in water, most land is near some, so strong shore rain makes almost everything too wet for desert.
+- **Wetter shores, drier interiors.** Every body of water sits at sea level, the hottest ground, so the land around water is always tropical. Without rain near water and inland drying, that hot ring is mostly desert and savanna. With them, shores are savanna and rainforest, and the few deserts sit inland. Deserts are rare because hot land far from water barely exists when climate follows height.
 
 ### 4.3 Terrain types
 

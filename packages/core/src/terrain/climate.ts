@@ -89,9 +89,10 @@ export function distanceToWater(cols: number, rows: number, cellSize: number, te
 }
 
 /**
- * Annual rainfall of each cell in inches (docs/DESIGN.md §4.2.1 step 7). Moisture
- * noise is converted to rainfall by rank, so the spread from the driest to the
- * wettest knob holds whatever the noise settings. With r the rank as a fraction,
+ * Annual rainfall of each cell in inches (docs/DESIGN.md §4.2.1 step 7). Wetness
+ * is moisture noise minus inland drying, which grows with distance from water up
+ * to the inland drying range. Wetness is converted to rainfall by rank, so the
+ * spread from the driest to the wettest knob holds whatever the noise settings. With r the rank as a fraction,
  * rainfall is driest + (wettest − driest) × (r + skew × (r² − r)): at skew 0 it
  * is spread evenly, and at skew 1 most land is moderate to dry and very wet
  * places are rare. Then extra rain near water is added, fading linearly to
@@ -109,7 +110,9 @@ export function generateRainfall(
   const moisture = new Float32Array(n);
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
-      moisture[row * cols + col] = moistureNoise((col + 0.5) * cellSize, (row + 0.5) * cellSize);
+      const i = row * cols + col;
+      const inland = Math.min(1, distance[i]! / config.inlandDryingRange);
+      moisture[i] = moistureNoise((col + 0.5) * cellSize, (row + 0.5) * cellSize) - config.inlandDrying * inland;
     }
   }
 

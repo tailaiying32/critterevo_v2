@@ -263,6 +263,27 @@ describe("rainfall", () => {
     expect(at(0.9)).toBeCloseTo(5 + 115 * 0.81, 1);
   });
 
+  it("makes land far from water drier with inland drying, keeping the driest and wettest values", () => {
+    const meanBy = (terrain: TerrainData, near: boolean) => {
+      let total = 0;
+      let count = 0;
+      terrain.rainfall.forEach((r, i) => {
+        const d = terrain.distanceToWater[i]!;
+        if (d === 0 || (near ? d > 30 : d < 200)) return;
+        total += r;
+        count++;
+      });
+      return total / count;
+    };
+    const drying = small({ ...dry, driestRainfall: 5, wettestRainfall: 120, inlandDrying: 0.5, inlandDryingRange: 200 });
+    const none = small({ ...dry, inlandDrying: 0 });
+    expect(meanBy(drying, false)).toBeLessThan(meanBy(drying, true) - 15);
+    expect(meanBy(drying, false)).toBeLessThan(meanBy(none, false));
+    const sorted = drying.rainfall.slice().sort();
+    expect(sorted[0]).toBe(5);
+    expect(sorted[sorted.length - 1]).toBe(120);
+  });
+
   it("adds rain near water, fading to nothing at the shore rain range", () => {
     const without = small(dry);
     const withRain = small({ shoreRain: 30, shoreRainRange: 150 });
@@ -328,11 +349,14 @@ describe("biomes", () => {
     }
   });
 
-  it("gives default worlds every biome, none of them rare", () => {
+  it("gives default worlds every biome, with none taking over", () => {
     const counts = new Array<number>(9).fill(0);
     for (let seed = 1; seed <= 5; seed++) for (const biome of generateTerrain(makeConfig({ seed })).biome) counts[biome]!++;
     const land = counts.reduce((a, b) => a + b, 0) - counts[Biome.None]!;
-    for (let biome = 1; biome < counts.length; biome++) expect(counts[biome]! / land).toBeGreaterThan(0.01);
+    for (let biome = 1; biome < counts.length; biome++) {
+      expect(counts[biome]! / land).toBeGreaterThan(0.002);
+      expect(counts[biome]! / land).toBeLessThan(0.5);
+    }
   });
 
   it("makes the highest peak far colder than lowland at its latitude, and never tropical", () => {

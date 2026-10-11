@@ -105,8 +105,8 @@ Phases 0 through 7 build the world and the body. Evolution starts in phase 8. Ex
 - Gentle noise: persistence × lacunarity well below 1, so land is smooth hills rather than bumps (DESIGN.md §4.2.2). Defaults chosen from the contact sheet: 5 octaves at persistence 0.3, about 6 specks per world.
 - Water, shallow water, and mountain shares set by coverage knobs.
 - Temperature in °F, rainfall in inches per year. Elevation maps to height in feet, and temperature drops with height by a lapse rate.
-- One sea-level temperature everywhere (84°F), so climate zones follow height. Latitude cooling is a knob, off by default.
-- Biome balance: peak height 24,000 ft, lowland flatness 0.4, rainfall skew 1, and rain near water +10 in within 60 units (DESIGN.md §4.2.3). Rain belts by latitude are deferred.
+- One sea-level temperature everywhere (70°F), so climate zones follow height. Latitude cooling is a knob, off by default.
+- Terrain and biome balance: landform size 900 units, peak height 30,000 ft, lowland flatness 0.85 (for plains), rainfall skew 1, rain near water +40 in within 100 units, and inland drying 0.25 over 200 units (DESIGN.md §4.2.3). Rain belts by latitude are deferred.
 - Biomes from Whittaker's real-world thresholds, applied to each cell's own temperature and rainfall. Tundra and taiga are set by temperature. Mountains get biomes.
 
 **Already built on this branch**
