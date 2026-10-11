@@ -18,11 +18,12 @@ interface TimeChartProps {
   /** Label of a series to bring forward, dimming the rest. */
   focused?: string | null;
   format: (value: number) => string;
+  /** Plot height in pixels. */
+  height?: number;
   /** Charts with the same key share a crosshair. */
   syncKey: string;
 }
 
-const HEIGHT = 130;
 /** Time axis steps in seconds, so ticks land on round seconds, minutes, and hours. */
 const TIME_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400, 172800, 432000];
 const AXIS_TEXT = "#8a949e";
@@ -33,7 +34,7 @@ const GRID = "#262c33";
  * only when the set of series changes; new data is swapped in place, so it can
  * update many times a second.
  */
-export function TimeChart({ title, x, series, hidden, focused = null, format, syncKey }: TimeChartProps) {
+export function TimeChart({ title, x, series, hidden, focused = null, format, height = 150, syncKey }: TimeChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
@@ -58,7 +59,7 @@ export function TimeChart({ title, x, series, hidden, focused = null, format, sy
     const plot = new uPlot(
       {
         width: Math.max(100, host.clientWidth),
-        height: HEIGHT,
+        height,
         legend: { show: false },
         focus: { alpha: 0.2 },
         cursor: { sync: { key: syncKey }, points: { show: false }, drag: { x: false, y: false } },
@@ -77,14 +78,14 @@ export function TimeChart({ title, x, series, hidden, focused = null, format, sy
       host,
     );
     plotRef.current = plot;
-    const resize = new ResizeObserver(() => plot.setSize({ width: Math.max(100, host.clientWidth), height: HEIGHT }));
+    const resize = new ResizeObserver(() => plot.setSize({ width: Math.max(100, host.clientWidth), height }));
     resize.observe(host);
     return () => {
       resize.disconnect();
       plot.destroy();
       plotRef.current = null;
     };
-  }, [signature, syncKey]);
+  }, [signature, syncKey, height]);
 
   useEffect(() => {
     plotRef.current?.setData(toData({ x, series }));
@@ -158,7 +159,7 @@ function showTooltip(
 
 /** Sim time for axes and tooltips: seconds, then minutes, then hours. */
 function formatTime(seconds: number): string {
-  if (seconds < 120) return `${Math.round(seconds)} s`;
+  if (seconds < 60) return `${Math.round(seconds)} s`;
   if (seconds < 3600) return `${+(seconds / 60).toFixed(1)} min`;
   if (seconds < 172800) return `${+(seconds / 3600).toFixed(1)} h`;
   return `${+(seconds / 86400).toFixed(1)} d`;

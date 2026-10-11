@@ -25,6 +25,7 @@ const BIOME_LINE_COLORS: Record<(typeof STATS_BIOMES)[number], string> = {
 };
 /** How often the charts redraw while stats stream in. */
 const REFRESH_MS = 250;
+const CHART_HEIGHT = 220;
 
 interface Chart {
   title: string;
@@ -33,12 +34,42 @@ interface Chart {
 }
 
 /**
- * Plant count and energy over time, for the whole world or per biome
- * (docs/DESIGN.md §15). Per biome, both are shown per area of that biome's
- * land, so sparse and dense biomes share one scale.
+ * Charts of the run over time (docs/DESIGN.md §15), on their own page. The
+ * world keeps running underneath, so it can be played and paused from here.
  */
-export function StatsPanel({ client }: { client: SimClient }) {
-  const [open, setOpen] = useState(true);
+export function StatisticsPage({ client }: { client: SimClient }) {
+  return (
+    <div className="stats-page">
+      <header className="settings-header">
+        <div className="settings-title">
+          <h1>Statistics</h1>
+          <RunStatus client={client} />
+        </div>
+      </header>
+      <PlantCharts client={client} />
+    </div>
+  );
+}
+
+/** Play and pause, with the current tick and sim time. */
+function RunStatus({ client }: { client: SimClient }) {
+  const { running, snapshot } = useSyncExternalStore(client.subscribe, client.getStatus);
+  return (
+    <div className="run-status">
+      <button onClick={() => (running ? client.pause() : client.play())}>{running ? "Pause" : "Play"}</button>
+      <span>
+        Tick {snapshot?.tick.toLocaleString() ?? "–"} · {snapshot ? formatSimTime(snapshot.time) : "–"}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Plant count and energy over time, for the whole world or per biome. Per
+ * biome, both are shown per area of that biome's land, so sparse and dense
+ * biomes share one scale.
+ */
+function PlantCharts({ client }: { client: SimClient }) {
   const [mode, setMode] = useState<Mode>("total");
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
   const [focused, setFocused] = useState<string | null>(null);
@@ -51,23 +82,18 @@ export function StatsPanel({ client }: { client: SimClient }) {
   const legend = mode === "biome" ? (charts[0]?.series ?? []) : [];
 
   return (
-    <section className={`stats-panel${open ? "" : " collapsed"}`}>
-      <header className="stats-header">
-        <h2>Plants over time</h2>
-        {open && (
-          <div className="segmented" role="radiogroup" aria-label="Breakdown">
-            {(["total", "biome"] as const).map((m) => (
-              <button key={m} role="radio" aria-checked={mode === m} className={mode === m ? "active" : ""} onClick={() => setMode(m)}>
-                {m === "total" ? "Total" : "By biome"}
-              </button>
-            ))}
-          </div>
-        )}
-        <button className="stats-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
-          {open ? "Hide" : "Show"}
-        </button>
+    <section className="settings-card stats-section">
+      <header className="stats-section-header">
+        <h2>Plants</h2>
+        <div className="segmented" role="radiogroup" aria-label="Breakdown">
+          {(["total", "biome"] as const).map((m) => (
+            <button key={m} role="radio" aria-checked={mode === m} className={mode === m ? "active" : ""} onClick={() => setMode(m)}>
+              {m === "total" ? "Total" : "By biome"}
+            </button>
+          ))}
+        </div>
       </header>
-      {open && legend.length > 0 && (
+      {legend.length > 0 && (
         <ul className="chart-legend" onMouseLeave={() => setFocused(null)}>
           {legend.map((s) => (
             <li key={s.label}>
@@ -85,22 +111,21 @@ export function StatsPanel({ client }: { client: SimClient }) {
           ))}
         </ul>
       )}
-      {open && (
-        <div className="stats-charts">
-          {charts.map((chart) => (
-            <TimeChart
-              key={chart.title}
-              title={chart.title}
-              x={x}
-              series={chart.series}
-              hidden={hidden}
-              focused={focused}
-              format={chart.format}
-              syncKey="plants"
-            />
-          ))}
-        </div>
-      )}
+      <div className="stats-charts">
+        {charts.map((chart) => (
+          <TimeChart
+            key={chart.title}
+            title={chart.title}
+            x={x}
+            series={chart.series}
+            hidden={hidden}
+            focused={focused}
+            format={chart.format}
+            height={CHART_HEIGHT}
+            syncKey="plants"
+          />
+        ))}
+      </div>
     </section>
   );
 }
@@ -175,6 +200,11 @@ const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumSig
 
 function formatCompact(value: number): string {
   return compact.format(value);
+}
+
+function formatSimTime(seconds: number): string {
+  if (seconds < 3600) return `${(seconds / 60).toFixed(1)} min`;
+  return `${(seconds / 3600).toFixed(2)} h`;
 }
 
 function formatDensity(value: number): string {

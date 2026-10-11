@@ -78,56 +78,47 @@ body,
 
 /* ---------- World view ---------- */
 
-.world-column {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-}
-
 .world-view {
   position: relative;
-  flex: 1;
   min-width: 0;
-  min-height: 0;
   overflow: hidden;
 }
 
-/* ---------- Stats ---------- */
+/* ---------- Statistics ---------- */
 
-.stats-panel {
-  background: var(--panel);
-  border-top: 1px solid var(--border);
-  padding: 10px 16px 12px;
+.run-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
-.stats-panel.collapsed {
-  padding-bottom: 10px;
+.run-status button {
+  min-width: 64px;
 }
 
-.stats-header {
+.stats-section + .stats-section {
+  margin-top: 16px;
+}
+
+.stats-section-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 16px;
 }
 
-.stats-header h2 {
+.stats-section-header h2 {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
-.stats-header .segmented button {
-  padding: 3px 10px;
-  font-size: 13px;
-}
-
-.stats-toggle {
-  margin-left: auto;
+.stats-section-header .segmented button {
   padding: 3px 10px;
   font-size: 13px;
 }
@@ -170,9 +161,9 @@ body,
 
 .stats-charts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 16px;
-  margin-top: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 24px;
+  margin-top: 12px;
 }
 
 .time-chart {
@@ -654,7 +645,8 @@ button.link {
 
 /* ---------- Settings page ---------- */
 
-.settings-page {
+.settings-page,
+.stats-page {
   position: absolute;
   inset: 0;
   overflow-y: auto;

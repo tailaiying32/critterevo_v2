@@ -3,11 +3,13 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { SimulationControls, StatusPanel } from "./components/ControlPanel";
 import { SettingsPage } from "./components/SettingsPage";
 import { SidebarSettings } from "./components/SidebarSettings";
-import { StatsPanel } from "./components/StatsPanel";
+import { StatisticsPage } from "./components/StatisticsPage";
 import { WorldCanvas } from "./components/WorldCanvas";
 import { SimClient } from "./sim/SimClient";
 
-type Page = "world" | "settings";
+type Page = "world" | "statistics" | "settings";
+
+const PAGE_HASHES: Record<Page, string> = { world: "#/world", statistics: "#/statistics", settings: "#/settings" };
 
 export function App() {
   const [client, setClient] = useState<SimClient | null>(null);
@@ -55,6 +57,9 @@ function Shell({ client }: { client: SimClient }) {
           <button className={page === "world" ? "active" : ""} onClick={() => goTo("world")}>
             World
           </button>
+          <button className={page === "statistics" ? "active" : ""} onClick={() => goTo("statistics")}>
+            Statistics
+          </button>
           <button className={page === "settings" ? "active" : ""} onClick={() => goTo("settings")}>
             Settings{pending ? " •" : ""}
           </button>
@@ -62,12 +67,9 @@ function Shell({ client }: { client: SimClient }) {
       </header>
 
       <div className="content">
-        {/* The world page stays mounted so the renderer and camera survive visits to settings. */}
+        {/* The world page stays mounted so the renderer and camera survive visits to other pages. */}
         <div className="world-page">
-          <div className="world-column">
-            <WorldCanvas client={client} />
-            <StatsPanel client={client} />
-          </div>
+          <WorldCanvas client={client} />
           <aside className="panel">
             <SimulationControls client={client} />
             <SidebarSettings
@@ -80,6 +82,7 @@ function Shell({ client }: { client: SimClient }) {
             <StatusPanel client={client} />
           </aside>
         </div>
+        {page === "statistics" && <StatisticsPage client={client} />}
         {page === "settings" && (
           <SettingsPage draft={draft} pending={pending} onDraftChange={changeDraft} onGenerate={generate} />
         )}
@@ -90,7 +93,7 @@ function Shell({ client }: { client: SimClient }) {
 
 /** The current page, kept in the URL hash so the browser back button works. */
 function useHashPage(): [Page, (page: Page) => void] {
-  const read = (): Page => (window.location.hash === "#/settings" ? "settings" : "world");
+  const read = (): Page => (Object.keys(PAGE_HASHES) as Page[]).find((p) => PAGE_HASHES[p] === window.location.hash) ?? "world";
   const [page, setPage] = useState<Page>(read);
   useEffect(() => {
     const onHashChange = () => setPage(read());
@@ -98,7 +101,7 @@ function useHashPage(): [Page, (page: Page) => void] {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
   const goTo = (next: Page) => {
-    if (read() !== next) window.location.hash = next === "settings" ? "#/settings" : "#/world";
+    if (read() !== next) window.location.hash = PAGE_HASHES[next];
     setPage(next);
   };
   return [page, goTo];

@@ -187,7 +187,7 @@ The CLI terrain summary grows with each step: grid size, generation time, terrai
 - Local seeding within a dispersal radius, crowding check, long-distance dispersal, plant lifespan.
 - Grazing death below the root reserve. There are no grazers yet, so it is triggered by the graze brush below.
 - Plants in the snapshot as typed arrays, drawn by a Pixi `ParticleContainer` with size and brightness by energy. The map dims while plants are shown.
-- First stats panel: plant count and total plant energy over time, overall and per biome. Per biome, both are per 100 by 100 units of that biome's land, so every biome reads on one scale. Stats are recorded in `core` and thinned as a run grows.
+- First stats panel, on its own Statistics tab: plant count and total plant energy over time, overall and per biome. Per biome, both are per 100 by 100 units of that biome's land, so every biome reads on one scale. Stats are recorded in `core` and thinned as a run grows.
 - **Live knobs**: knobs marked live apply at once to the running world. All plant knobs except starting plants and plant energy are live, so effects can be toggled mid-run.
 - Plant count in the status panel and a plant summary in the CLI.
 

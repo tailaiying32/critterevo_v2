@@ -635,7 +635,7 @@ Conflict rules, such as two critters eating the last bite of one plant or one cr
 - **Controls**: play, pause, single step, speed.
 - **World setup**: a Settings page with every knob, grouped by category and searchable, plus a few featured knobs beside the world. Generate new world. Knobs marked live apply at once to the running world; the rest apply to the next world.
 - **Inspector** for the selected critter: traits, state, energy budget breakdown by cost term, live brain graph with activations, lineage.
-- **Statistics**, drawn with uPlot: plant count and plant energy over time, in total or per biome as density, so sparse and dense biomes share one scale; population over time, species count, trait histograms over time (digestion, size, eye placement angle, eye field of view, wedges per eye, vision range), sexual vs asexual birth fraction, average brain size.
+- **Statistics**, on its own tab beside World and Settings, drawn with uPlot: plant count and plant energy over time, in total or per biome as density, so sparse and dense biomes share one scale; population over time, species count, trait histograms over time (digestion, size, eye placement angle, eye field of view, wedges per eye, vision range), sexual vs asexual birth fraction, average brain size.
 - **Save, load, and export** of world state and stats.
 
 ### 14.2 CLI
