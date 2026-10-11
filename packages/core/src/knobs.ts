@@ -6,7 +6,7 @@
  */
 
 /** Groups shown as sections in the settings panel, in display order. */
-export const KNOB_GROUPS = ["World", "Terrain", "Climate", "Simulation"] as const;
+export const KNOB_GROUPS = ["World", "Terrain", "Climate", "Plants", "Plant productivity", "Simulation"] as const;
 export type KnobGroup = (typeof KNOB_GROUPS)[number];
 
 /**
@@ -45,6 +45,23 @@ export interface BooleanKnobSpec extends KnobBase {
 export type KnobSpec = NumberKnobSpec | BooleanKnobSpec;
 
 export type KnobValue<S extends KnobSpec> = S extends BooleanKnobSpec ? boolean : number;
+
+/** A biome's plant productivity knob. The default is the real net primary productivity of the matching ecosystem. */
+function productivity(biome: string, npp: number, ecosystem: string): NumberKnobSpec {
+  return {
+    kind: "number",
+    label: biome,
+    group: "Plant productivity",
+    description: `Net primary productivity of ${biome.toLowerCase()}: plant growth per area per year. Plant density and regrowth speed both scale with its square root, so plant energy produced per area follows it. The default is the measured mean for ${ecosystem}. At 0, no plants grow there.`,
+    applies: "live",
+    default: npp,
+    min: 0,
+    max: 4000,
+    step: 10,
+    integer: true,
+    unit: "g/m²/yr",
+  };
+}
 
 export const KNOBS = {
   // ---------------- World ----------------
@@ -354,6 +371,192 @@ export const KNOBS = {
     step: 10,
     unit: "u",
   },
+
+  // ---------------- Plants (docs/DESIGN.md §5.1) ----------------
+  startingPlants: {
+    kind: "number",
+    label: "Starting plants",
+    group: "Plants",
+    description: "Fully grown plants scattered over the land when the world is generated. From a few, patches spread outward until they fill the land.",
+    applies: "new-world",
+    featured: true,
+    default: 2000,
+    min: 0,
+    max: 200000,
+    step: 100,
+    integer: true,
+  },
+  plantEnergy: {
+    kind: "number",
+    label: "Plant energy",
+    group: "Plants",
+    description: "Energy in a fully grown plant: the most food one plant can hold.",
+    applies: "new-world",
+    default: 100,
+    min: 1,
+    max: 1000,
+    step: 1,
+  },
+  plantDensity: {
+    kind: "number",
+    label: "Plant density",
+    group: "Plants",
+    description:
+      "How crowded the ground can get, in plants per 100 by 100 units, at 2,200 g/m²/yr, the productivity of rainforest. Less productive biomes allow fewer, by the square root of their productivity. A seed's chance of taking root falls as the plants around it near this density and is zero at it. Settled land ends up somewhat denser, since seeds take root more easily in gaps.",
+    applies: "live",
+    default: 40,
+    min: 0,
+    max: 500,
+    step: 1,
+    unit: "/100²u",
+  },
+  crowdingRadius: {
+    kind: "number",
+    label: "Crowding radius",
+    group: "Plants",
+    description: "How far around a seed the ground is checked for crowding. Larger values give a more even spread.",
+    applies: "live",
+    default: 20,
+    min: 2,
+    max: 100,
+    step: 1,
+    unit: "u",
+  },
+  regrowthTime: {
+    kind: "number",
+    label: "Regrowth time",
+    group: "Plants",
+    description:
+      "Time for a rainforest plant to regrow from 10% to 90% of full energy. Less productive biomes take longer, by the square root of their productivity. Growth is logistic, so a plant grazed down low regrows slowly at first.",
+    applies: "live",
+    default: 60,
+    min: 1,
+    max: 3600,
+    step: 1,
+    unit: "s",
+  },
+  seedlingEnergy: {
+    kind: "number",
+    label: "Seedling energy",
+    group: "Plants",
+    description: "Energy a new seedling starts with, as a share of full energy.",
+    applies: "live",
+    default: 10,
+    min: 1,
+    max: 100,
+    step: 1,
+    unit: "%",
+  },
+  rootReserve: {
+    kind: "number",
+    label: "Root reserve",
+    group: "Plants",
+    description: "A plant grazed below this share of full energy dies. Overgrazing kills plants, so a stripped patch can only recover from its edges.",
+    applies: "live",
+    default: 10,
+    min: 0,
+    max: 100,
+    step: 1,
+    unit: "%",
+  },
+  localSeeding: {
+    kind: "boolean",
+    label: "Local seeding",
+    group: "Plants",
+    description: "Mature plants drop seeds nearby, so patches spread outward.",
+    applies: "live",
+    featured: true,
+    default: true,
+  },
+  seedingMaturity: {
+    kind: "number",
+    label: "Seeding maturity",
+    group: "Plants",
+    description: "Plants drop seeds only above this share of full energy, so heavily grazed plants stop spreading.",
+    applies: "live",
+    default: 50,
+    min: 0,
+    max: 100,
+    step: 1,
+    unit: "%",
+  },
+  seedInterval: {
+    kind: "number",
+    label: "Seed interval",
+    group: "Plants",
+    description: "Average time between seeds from one mature plant.",
+    applies: "live",
+    default: 30,
+    min: 1,
+    max: 3600,
+    step: 1,
+    unit: "s",
+  },
+  seedRadius: {
+    kind: "number",
+    label: "Seed radius",
+    group: "Plants",
+    description: "How far from its parent a seed can land.",
+    applies: "live",
+    default: 30,
+    min: 1,
+    max: 500,
+    step: 1,
+    unit: "u",
+  },
+  longDistanceDispersal: {
+    kind: "boolean",
+    label: "Long-distance dispersal",
+    group: "Plants",
+    description: "Seeds land at random anywhere, standing in for wind and birds. Without it, a fully stripped region can never recover.",
+    applies: "live",
+    featured: true,
+    default: true,
+  },
+  longDistanceRate: {
+    kind: "number",
+    label: "Long-distance seed rate",
+    group: "Plants",
+    description: "Seeds per second landing at random in each 1,000 by 1,000 unit area. Most land on water or crowded ground and fail.",
+    applies: "live",
+    default: 0.2,
+    min: 0,
+    max: 100,
+    step: 0.05,
+    unit: "/s",
+  },
+  plantAging: {
+    kind: "boolean",
+    label: "Plant lifespan",
+    group: "Plants",
+    description: "Plants age and die, so patches turn over even without grazing. When off, plants stop aging.",
+    applies: "live",
+    featured: true,
+    default: true,
+  },
+  plantLifespan: {
+    kind: "number",
+    label: "Mean lifespan",
+    group: "Plants",
+    description: "Average age at which plants die. Each plant draws its own lifespan when it sprouts, from half to one and a half times this.",
+    applies: "live",
+    default: 600,
+    min: 10,
+    max: 36000,
+    step: 10,
+    unit: "s",
+  },
+
+  // ---------------- Plant productivity (docs/DESIGN.md §4.4) ----------------
+  // Net primary productivity by biome, from Whittaker & Likens (1975).
+  productivityTundra: productivity("Tundra", 140, "tundra and alpine"),
+  productivityTaiga: productivity("Taiga", 800, "boreal forest"),
+  productivityGrassland: productivity("Grassland", 600, "temperate grassland"),
+  productivityTemperateForest: productivity("Temperate forest", 1200, "temperate deciduous forest"),
+  productivityTemperateRainforest: productivity("Temperate rainforest", 1300, "temperate evergreen forest"),
+  productivityDesert: productivity("Desert", 90, "desert and semidesert scrub"),
+  productivitySavanna: productivity("Savanna", 900, "savanna"),
+  productivityRainforest: productivity("Rainforest", 2200, "tropical rainforest"),
 
   // ---------------- Simulation ----------------
   dt: {

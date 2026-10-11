@@ -12,22 +12,34 @@ interface KnobInputProps {
 /** One generated control for a knob, chosen from the knob's spec. */
 export function KnobInput({ spec, value, onChange, compact = false }: KnobInputProps) {
   const isDefault = value === spec.default;
+  const live = spec.applies === "live" && (
+    <span className="knob-live" title="Applies at once to the running world">
+      live
+    </span>
+  );
 
   return (
     <div className="knob" title={spec.description}>
       <div className="knob-header">
-        <span className="knob-label">{spec.label}</span>
+        {spec.kind === "boolean" ? (
+          <label className="knob-label knob-check">
+            <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} />
+            {spec.label}
+            {live}
+          </label>
+        ) : (
+          <span className="knob-label">
+            {spec.label}
+            {live}
+          </span>
+        )}
         {!isDefault && (
           <button className="knob-reset" onClick={() => onChange(spec.default)} title="Reset to default">
             reset
           </button>
         )}
       </div>
-      {spec.kind === "boolean" ? (
-        <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} />
-      ) : (
-        <NumberControl spec={spec} value={Number(value)} onChange={onChange} />
-      )}
+      {spec.kind === "number" && <NumberControl spec={spec} value={Number(value)} onChange={onChange} />}
       {!compact && <p className="knob-description">{spec.description}</p>}
     </div>
   );

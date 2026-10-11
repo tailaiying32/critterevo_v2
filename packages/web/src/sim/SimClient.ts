@@ -1,5 +1,5 @@
-import type { Snapshot, TerrainData, WorldConfig } from "@critter-evo/core";
-import type { FromWorker, Speed, ToWorker } from "./protocol";
+import type { Snapshot, StatsRows, TerrainData, WorldConfig } from "@critter-evo/core";
+import type { Brush, FromWorker, Speed, ToWorker } from "./protocol";
 
 export interface SimStatus {
   snapshot: Snapshot | null;
@@ -16,6 +16,47 @@ export interface SimStatus {
   worldId: number;
   /** True from asking for a new world until it arrives. */
   generating: boolean;
+  /** Increments whenever stats rows arrive. The rows themselves are in SimClient.stats. */
+  statsVersion: number;
+}
+
+/** Stats recorded by the sim (docs/DESIGN.md §15), kept on the main thread for charts. */
+export class StatsHistory {
+  columns: readonly string[] = [];
+  /** One array per column. */
+  data: number[][] = [];
+  /** Ticks between rows. */
+  interval = 0;
+
+  get length(): number {
+    return this.data[0]?.length ?? 0;
+  }
+
+  column(name: string): number[] {
+    const c = this.columns.indexOf(name);
+    return c >= 0 ? this.data[c]! : [];
+  }
+
+  copy(): StatsHistory {
+    const copy = new StatsHistory();
+    copy.columns = this.columns;
+    copy.data = this.data.map((column) => column.slice());
+    copy.interval = this.interval;
+    return copy;
+  }
+
+  /** Adds rows from the worker. Rows from the start replace everything, as after thinning or a new world. */
+  apply(rows: StatsRows): void {
+    if (rows.start === 0 || rows.start !== this.length) {
+      this.columns = rows.columns;
+      this.data = rows.columns.map(() => []);
+    }
+    rows.data.forEach((column, c) => {
+      const target = this.data[c]!;
+      for (const value of column) target.push(value);
+    });
+    this.interval = rows.interval;
+  }
 }
 
 /**
@@ -35,7 +76,9 @@ export class SimClient {
     generationMs: 0,
     worldId: 0,
     generating: false,
+    statsVersion: 0,
   };
+  readonly stats = new StatsHistory();
   private readonly listeners = new Set<() => void>();
 
   constructor() {
@@ -52,12 +95,17 @@ export class SimClient {
             generating: false,
           });
           break;
+        case "config":
+          this.update({ activeConfig: msg.config });
+          break;
         case "frame":
+          if (msg.stats) this.stats.apply(msg.stats);
           this.update({
             snapshot: msg.snapshot,
             running: msg.running,
             measuredTps: msg.measuredTps,
             stateHash: msg.stateHash,
+            statsVersion: this.status.statsVersion + (msg.stats ? 1 : 0),
           });
           break;
       }
@@ -86,6 +134,13 @@ export class SimClient {
   }
   setSpeed(speed: Speed): void {
     this.send({ type: "setSpeed", speed });
+  }
+  /** Changes live knobs in the running world. */
+  updateConfig(changes: Partial<WorldConfig>): void {
+    this.send({ type: "updateConfig", changes });
+  }
+  brush(brush: Brush): void {
+    this.send({ type: "brush", brush });
   }
 
   dispose(): void {

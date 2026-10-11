@@ -23,6 +23,19 @@ export function makeConfig(overrides: Partial<WorldConfig> = {}): WorldConfig {
 }
 
 /**
+ * A running world's config with changes to live knobs applied (docs/DESIGN.md
+ * principle 3). Changes to knobs that apply only to a new world are ignored.
+ */
+export function withLiveKnobs(config: WorldConfig, changes: Partial<WorldConfig>): WorldConfig {
+  const next = { ...config } as MutableConfig;
+  for (const [key, spec] of knobEntries()) {
+    const value = changes[key];
+    if (value !== undefined && spec.applies === "live") next[key] = normalizeKnobValue(spec, value);
+  }
+  return next as WorldConfig;
+}
+
+/**
  * Rules that involve more than one knob. Applied after each knob is clamped.
  * - Cell size is raised if the world would otherwise exceed MAX_TERRAIN_CELLS.
  */

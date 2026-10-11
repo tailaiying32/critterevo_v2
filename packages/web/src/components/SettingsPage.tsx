@@ -37,7 +37,7 @@ export function SettingsPage({ draft, pending, onDraftChange, onGenerate }: Sett
       <header className="settings-header">
         <div className="settings-title">
           <h1>Settings</h1>
-          {pending && <span className="notice">Changes apply when you generate a new world.</span>}
+          {pending && <span className="notice">Some changes apply when you generate a new world. Settings marked live apply at once.</span>}
         </div>
         <input
           className="search"

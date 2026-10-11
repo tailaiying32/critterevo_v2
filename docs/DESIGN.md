@@ -41,6 +41,10 @@ Design principles:
 | Mountain biomes | Mountains get biomes from the same lookup as land | Decided |
 | Terrain rendering | Pixel-art style: baked to a texture once per world, one flat-colored pixel per cell, values in steps, and relief shading in three levels | Decided |
 | Food | Regrowing plant entities, growth set by biome | Decided |
+| Plant growth | Logistic regrowth toward full energy. Each biome has one productivity, defaulting to its real net primary productivity; plant density and regrowth speed both scale with its square root | Decided |
+| Spatial index | Uniform hash, 32 unit cells, a linked list per cell | Decided |
+| Population target | About 20,000 plants and 1,000 critters on the default 3000 by 3000 world | Decided |
+| Charts | uPlot | Decided |
 | Corpses | Dead critters become meat | Decided |
 | Brain | NEAT with crossover, real innovation tracking | Decided |
 | Brain control | Direct: brain drives steering and actions | Decided |
@@ -58,7 +62,7 @@ Design principles:
 | Field of view | Evolvable trait | Decided |
 | Asexual threshold | Derived from physical traits, not a gene | Decided |
 | Max age | Derived from body mass (lifespan ∝ mass^0.25), not a gene | Proposed |
-| Plant reproduction | Plants seed nearby; overgrazing can kill plants | Proposed |
+| Plant reproduction | Plants seed nearby, crowding lowers a seed's chance to take root, a few seeds land anywhere, plants age and die, and grazing below a root reserve kills | Decided |
 | Recurrent connections | Allowed | Proposed |
 | Terrain slowdown | Set by water depth, slope, and critter size; also costs energy | Proposed |
 | Temperature effect | Emergent from body size and surface area only | Decided |
@@ -111,7 +115,7 @@ critter-evo/
 
 ### 3.4 Spatial indexing
 
-A uniform spatial hash, rebuilt or incrementally updated each tick, indexes critters, plants, and corpses. It supports:
+A uniform spatial hash indexes critters, plants, and corpses, one hash per kind. Cells are 32 units across, so a radius query for crowding, eating, or vision covers a handful of cells. Each cell keeps a doubly linked list of entity ids, so inserting, removing, and moving are O(1) and the hash is updated incrementally rather than rebuilt. Iteration order depends only on the history of inserts and removes, so it is deterministic. It supports:
 
 - radius queries (interaction range, mating range, attack range)
 - cone queries for eyes: gather entities within vision range from nearby hash cells, then bin them into wedges by angle
@@ -245,11 +249,23 @@ The thresholds approximate Whittaker's diagram (20°C, 5°C, and −5°C; 50, 10
 
 Each biome defines:
 
-- plant spawn density and regrowth rate
-- plant maximum energy
-- movement cost multiplier
+- **plant productivity**, which sets plant density and regrowth speed (§5.1)
+- movement cost multiplier (Phase 4)
 
-Exact values are tuning parameters.
+Productivity is net primary productivity: plant growth per area per year, in g/m²/yr. Each biome's default is the measured mean for the matching ecosystem (Whittaker and Likens, 1975), and each is a knob:
+
+| Biome | Ecosystem | Productivity (g/m²/yr) | Density and regrowth (×) |
+|---|---|---|---|
+| Rainforest | Tropical rainforest | 2,200 | 1.00 |
+| Temperate rainforest | Temperate evergreen forest | 1,300 | 0.77 |
+| Temperate forest | Temperate deciduous forest | 1,200 | 0.74 |
+| Savanna | Savanna | 900 | 0.64 |
+| Taiga | Boreal forest | 800 | 0.60 |
+| Grassland | Temperate grassland | 600 | 0.52 |
+| Tundra | Tundra and alpine | 140 | 0.25 |
+| Desert | Desert and semidesert scrub | 90 | 0.20 |
+
+Plant density and regrowth speed both scale with the square root of productivity relative to rainforest's 2,200, so their product, the plant energy produced per area, follows the real ratios. Desert grows a fifth as many plants as rainforest, each regrowing a fifth as fast. Plant size (full energy) is the same everywhere.
 
 ---
 
@@ -257,15 +273,33 @@ Exact values are tuning parameters.
 
 ### 5.1 Plants
 
-- Plants are persistent entities with a position, a current energy, a maximum energy, and an age.
-- Plants regrow toward their maximum at a rate set by their biome.
-- **Local seeding (Proposed)**: a plant above a maturity energy level has a per-tick chance to drop a seed within a dispersal radius. The chance and radius are set by biome.
-- **Crowding (Proposed)**: a seed fails if the spot is already dense with plants, standing in for competition over light and soil.
-- **Grazing death (Proposed)**: a plant grazed below a root reserve dies. Overgrazing therefore removes seed sources, and a stripped patch can only recover from its edges.
-- **Long-distance dispersal (Proposed)**: a small background rate of seeds landing anywhere suitable, standing in for wind and birds. Without it, a fully stripped region can never recover.
-- **Plant lifespan (Proposed)**: plants age and eventually die, so patches turn over even without grazing.
+- Plants are fixed entities with a position, a current energy, an age, and a lifespan. Full energy (*plant energy*) is the same for every plant. Plants grow only on land and mountains, never in water.
+- **Regrowth (Decided)**: energy grows logistically toward full, `dE/dt = r × E × (1 − E / full)`, as in classic grazing models (Noy-Meir, 1975). A plant grazed down low regrows slowly at first, which is what makes overgrazing collapse and recovery slow. The *regrowth time* knob is the time for a rainforest plant to go from 10% to 90% of full; `r = ln 81 / regrowth time`, scaled by the biome (§4.4).
+- **Local seeding (Decided)**: a plant above the *seeding maturity* share of full energy drops a seed on average once per *seed interval*, landing uniformly within the *seed radius*. Heavily grazed plants stop seeding.
+- **Crowding (Decided)**: a seed's chance to take root is `1 − n / K`, where `n` is the number of plants within the *crowding radius* and `K` is the *plant density* knob converted to a count in that circle and scaled by the biome (§4.4). This is density-dependent recruitment, standing in for competition over light and soil. A hard limit ("fail if n ≥ K") was tried first: plants packed around each other until density reached about twice K and kept creeping up. With the chance falling smoothly, density settles a third to a half above K, since seeds take root more easily in gaps, and stays there. New seedlings start at the *seedling energy* share of full.
+- **Grazing death (Decided)**: a plant grazed below the *root reserve* share of full energy dies. Overgrazing therefore removes seed sources, and a stripped patch can only recover from its edges.
+- **Long-distance dispersal (Decided)**: seeds land at random anywhere at the *long-distance seed rate* per 1,000 by 1,000 units, standing in for wind and birds, and take root by the same rules. Without it, a fully stripped region can never recover.
+- **Plant lifespan (Decided)**: each plant draws a lifespan from half to one and a half times the *mean lifespan* when it sprouts, and dies when its age reaches it. Turning lifespan off pauses aging rather than letting overdue plants all die when it is turned back on.
+- **Update rate (Decided)**: plants change slowly, so each plant grows, ages, and seeds once every 10 ticks, by 10 ticks' worth, a tenth of the plants each tick. Grazing acts at once. This keeps 20,000 plants nearly free, at about 40,000 ticks per second headless, leaving the time budget for critters.
 
 This produces meadows and patch edges, real overgrazing with slow recovery, and an incentive for herbivores to move on before a patch collapses.
+
+Knobs (Plants group; all but starting plants and plant energy apply live):
+
+| Knob | Default |
+|---|---|
+| Starting plants | 2,000 |
+| Plant energy | 100 |
+| Plant density | 40 per 100 by 100 units at rainforest productivity |
+| Crowding radius | 20 units |
+| Regrowth time | 60 s |
+| Seedling energy | 10% |
+| Root reserve | 10% |
+| Local seeding, seeding maturity, seed interval, seed radius | on, 50%, 30 s, 30 units |
+| Long-distance dispersal, seed rate | on, 0.2 per second per 1,000 by 1,000 units |
+| Plant lifespan, mean lifespan | on, 600 s |
+
+With these defaults the default world settles at about 20,000 plants within about 15 minutes of sim time, from rainforest at about 58 plants per 100 by 100 units down to desert at about 11.
 
 ### 5.2 Corpses (meat)
 
@@ -594,12 +628,14 @@ Conflict rules, such as two critters eating the last bite of one plant or one cr
   - **Rainfall**: 10 inch steps of one blue. The biome thresholds (20, 40, 80, and 100 in) fall on step edges.
   - **Relief** (on by default): shading from elevation, lit from the northwest, in three levels (lit, plain, shadow, plus a deeper shadow on steep slopes) over the biome, terrain type, and elevation views. Gentle slopes stay plain. Not offered for temperature and rainfall, where lightness carries the value. The shading's exaggeration scales with landform size, so a bigger world with proportionally bigger landforms looks the same.
 
-  The views are pure functions in `core`, shared with the CLI contact sheet so both draw the same thing. Plants, corpses, and critters are drawn as sprites; plants, corpses, and critters as sprites; pan and zoom; click to select. Optional vision-cone overlay for the selected critter, showing each wedge, with binocular and monocular zones shaded differently.
+  The views are pure functions in `core`, shared with the CLI contact sheet so both draw the same thing. Pan and zoom; click to select. Optional vision-cone overlay for the selected critter, showing each wedge, with binocular and monocular zones shaded differently.
+- **Plants** are drawn as particles in one Pixi `ParticleContainer`, sized and colored by energy: dim olive when grazed, bright lime when full. They never shrink below about two pixels across, so density stays visible when zoomed out. While plants are shown, the map is dimmed so they stand out on every biome. Corpses and critters will be drawn as sprites.
+- **Brushes** (debug tools): a graze brush grazes plants down to a chosen share of full energy, killing those left below the root reserve, and a plant brush sows fully grown plants. Right-drag pans while a brush is selected.
 - **Critter coloring modes**: by species, by digestion trait, by energy, by generation.
 - **Controls**: play, pause, single step, speed.
-- **World setup**: a Settings page with every knob, grouped by category and searchable, plus a few featured knobs beside the world. Generate new world.
+- **World setup**: a Settings page with every knob, grouped by category and searchable, plus a few featured knobs beside the world. Generate new world. Knobs marked live apply at once to the running world; the rest apply to the next world.
 - **Inspector** for the selected critter: traits, state, energy budget breakdown by cost term, live brain graph with activations, lineage.
-- **Statistics**: population over time, species count, trait histograms over time (digestion, size, eye placement angle, eye field of view, wedges per eye, vision range), sexual vs asexual birth fraction, average brain size.
+- **Statistics**, drawn with uPlot: plant count and plant energy over time, in total or per biome as density, so sparse and dense biomes share one scale; population over time, species count, trait histograms over time (digestion, size, eye placement angle, eye field of view, wedges per eye, vision range), sexual vs asexual birth fraction, average brain size.
 - **Save, load, and export** of world state and stats.
 
 ### 14.2 CLI
@@ -616,7 +652,7 @@ critter-evo run --config world.json --seed 42 --ticks 100000 --out results/
 
 ## 15. Metrics
 
-Recorded every K ticks:
+Recorded in `core` every 30 ticks from tick 0, column by column. When 2,048 rows are full, every other row is dropped and the interval doubles, so a long run keeps its whole history at a coarser resolution in bounded memory. The web app and the CLI read the same recorder. Plant count and plant energy, in total and per biome, are recorded from Phase 3. The full list:
 
 - population, births, deaths by cause (starvation, combat, old age)
 - species count and sizes
@@ -664,8 +700,8 @@ Recorded every K ticks:
 ### Project
 
 17. ~~Hosting~~ Resolved: GitHub Pages.
-18. Charting library for the stats panel.
-19. Target world size and population for performance budgeting.
+18. ~~Charting library for the stats panel~~ Resolved: uPlot, for fast live time series. Trait-over-time heatmaps (Phase 8) will be custom canvas.
+19. ~~Target world size and population~~ Resolved: about 20,000 plants and 1,000 critters on the default 3000 by 3000 world. Plants alone must run at 5,000 ticks per second or more at Max; they run at about 11,000 in the browser and 40,000 headless.
 20. Eating automatic (Proposed) or a brain output?
 21. Corpse decay (Proposed): yes or no?
 

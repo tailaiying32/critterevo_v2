@@ -12,7 +12,8 @@
     "@critter-evo/core": "*",
     "pixi.js": "8.21.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "uplot": "1.6.32"
   },
   "devDependencies": {
     "@types/react": "19.3.0",

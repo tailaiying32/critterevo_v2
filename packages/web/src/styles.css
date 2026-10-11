@@ -78,10 +78,148 @@ body,
 
 /* ---------- World view ---------- */
 
+.world-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
 .world-view {
   position: relative;
+  flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
+}
+
+/* ---------- Stats ---------- */
+
+.stats-panel {
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  padding: 10px 16px 12px;
+}
+
+.stats-panel.collapsed {
+  padding-bottom: 10px;
+}
+
+.stats-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.stats-header h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.stats-header .segmented button {
+  padding: 3px 10px;
+  font-size: 13px;
+}
+
+.stats-toggle {
+  margin-left: auto;
+  padding: 3px 10px;
+  font-size: 13px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  margin: 6px 0 0 -6px;
+  padding: 0;
+  list-style: none;
+}
+
+.chart-legend button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.chart-legend button.off {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.chart-legend button.off .line-key {
+  opacity: 0.3;
+}
+
+.line-key {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.stats-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.time-chart {
+  margin: 0;
+  min-width: 0;
+}
+
+.time-chart figcaption {
+  margin-bottom: 4px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.time-chart-plot {
+  position: relative;
+}
+
+.chart-tooltip {
+  display: none;
+  position: absolute;
+  z-index: 2;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.chart-tooltip-time {
+  margin-bottom: 4px;
+  color: var(--muted);
+}
+
+.chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-tooltip-row strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tooltip-row span:last-child {
+  color: var(--muted);
 }
 
 .world-canvas {
@@ -94,11 +232,19 @@ body,
   touch-action: none;
 }
 
-.canvas-toolbar {
+.canvas-controls {
   position: absolute;
   top: 12px;
   left: 12px;
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.canvas-toolbar {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
@@ -135,6 +281,55 @@ body,
 .toggle:has(input:disabled) {
   opacity: 0.4;
   cursor: default;
+}
+
+/* A row of buttons that act as one control, with the chosen one highlighted. */
+.segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.segmented button {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--border);
+}
+
+.segmented button.active {
+  background: #24402a;
+  color: var(--text);
+}
+
+.segmented button:hover:not(.active) {
+  color: var(--text);
+}
+
+.brush-control {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+}
+
+.brush-control input[type="range"] {
+  width: 110px;
+  accent-color: var(--accent);
+}
+
+.brush-control .value {
+  min-width: 40px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .canvas-readout {
@@ -290,6 +485,30 @@ dd {
 
 .knob-label {
   font-weight: 500;
+}
+
+.knob-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.knob-check input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.knob-live {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid #3b6b43;
+  border-radius: 4px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 400;
+  vertical-align: 1px;
 }
 
 .knob-reset {

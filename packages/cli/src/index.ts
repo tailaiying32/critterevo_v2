@@ -13,6 +13,7 @@ import {
   parseConfig,
   Simulation,
   SPECK_AREA,
+  STATS_BIOMES,
   TERRAIN_TYPE_NAMES,
   type TerrainData,
   type TerrainType,
@@ -67,6 +68,8 @@ if (ticks > 0) {
 }
 console.log();
 printTerrainSummary(sim.terrain);
+console.log();
+printPlantSummary(sim);
 
 function printTerrainSummary(terrain: TerrainData): void {
   const n = terrain.cols * terrain.rows;
@@ -100,6 +103,21 @@ function printTerrainSummary(terrain: TerrainData): void {
     BIOME_NAMES.forEach((name, biome) => {
       if (biome !== Biome.None) console.log(`  ${name.padEnd(22)}${((100 * biomes[biome]!) / land).toFixed(1).padStart(5)}%`);
     });
+  }
+}
+
+function printPlantSummary(sim: Simulation): void {
+  const stats = sim.plants.stats();
+  const mean = stats.count > 0 ? (stats.energy / stats.count / sim.config.plantEnergy) * 100 : 0;
+  console.log(`plants      ${stats.count.toLocaleString("en-US")}, ${Math.round(stats.energy).toLocaleString("en-US")} energy (${mean.toFixed(0)}% of full on average)`);
+  const cells = new Array<number>(BIOME_NAMES.length).fill(0);
+  for (const biome of sim.terrain.biome) cells[biome]!++;
+  const cellArea = sim.terrain.cellSize * sim.terrain.cellSize;
+  console.log("\nplants by biome (count, per 100 by 100 units)");
+  for (const biome of STATS_BIOMES) {
+    const area = cells[biome]! * cellArea;
+    const density = area > 0 ? ((stats.countByBiome[biome]! / area) * 10000).toFixed(1) : "–";
+    console.log(`  ${BIOME_NAMES[biome]!.padEnd(22)}${String(stats.countByBiome[biome]).padStart(7)}${density.padStart(8)}`);
   }
 }
 

@@ -63,6 +63,8 @@ export function StatusPanel({ client }: { client: SimClient }) {
         <dd>{snapshot?.tick.toLocaleString() ?? "–"}</dd>
         <dt>Sim time</dt>
         <dd>{snapshot ? `${snapshot.time.toFixed(1)} s` : "–"}</dd>
+        <dt>Plants</dt>
+        <dd>{snapshot?.plants.count.toLocaleString() ?? "–"}</dd>
         <dt>Generation time</dt>
         <dd>{status.generating ? "generating…" : status.terrain ? `${Math.round(status.generationMs)} ms` : "–"}</dd>
         <dt>Terrain grid</dt>

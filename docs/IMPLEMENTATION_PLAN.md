@@ -23,7 +23,7 @@ Three rules apply throughout
 |---|---|---|
 | 0 ✅ | Scaffold | Empty world, play, pause, speed, tick counter |
 | 1 ✅ | Viewport and knobs | Pan, zoom, a world settings panel generated from config |
-| 2 | Terrain and climate | Generated landscape with biomes and climate overlays |
+| 2 ✅ | Terrain and climate | Generated landscape with biomes and climate overlays |
 | 3 | Plants | Plants spreading, competing, and recovering from damage |
 | 4 | Bodies and movement | Critters you can drive with the keyboard |
 | 5 | Metabolism | Critters that eat, drink, burn energy, die, and leave corpses |
@@ -95,7 +95,7 @@ Phases 0 through 7 build the world and the body. Evolution starts in phase 8. Ex
 
 ---
 
-## Phase 2 — Terrain and climate
+## Phase 2 — Terrain and climate ✅
 
 **Decided**
 
@@ -109,7 +109,7 @@ Phases 0 through 7 build the world and the body. Evolution starts in phase 8. Ex
 - Terrain and biome balance: landform size 1,350 units, peak height 30,000 ft, lowland flatness 0.85 (for plains), rainfall skew 1, rain near water +40 in within 150 units, and inland drying 0.25 over 300 units (DESIGN.md §4.2.3). Rain belts by latitude are deferred.
 - Biomes from Whittaker's real-world thresholds, applied to each cell's own temperature and rainfall. Tundra and taiga are set by temperature. Mountains get biomes.
 
-**Already built on this branch**
+**Also built**
 
 - `Rng.derive(seed, label)` for per-system random streams.
 - `simplex-noise` installed in `core`.
@@ -170,32 +170,45 @@ The CLI terrain summary grows with each step: grid size, generation time, terrai
 
 ## Phase 3 — Plants
 
-**Decide first**
+**Decided**
 
-- §16 Q18: charting library for the stats panel. This is the first phase with a time-series chart.
-- §16 Q19: target world size and population. This sets spatial hash cell size and the performance budget.
+- §16 Q18: uPlot for the stats charts. Built for fast live time series, about 50 KB.
+- §16 Q19: about 20,000 plants and 1,000 critters on the default 3000 by 3000 world. Spatial hash cells are 32 units. Budget: plants alone run at 5,000 ticks per second or more at Max.
+- Biomes differ for plants by one productivity knob each, defaulting to real net primary productivity (Whittaker and Likens). Plant density and regrowth speed both scale with its square root, so plant energy produced per area follows the real ratios. Plant size is the same everywhere (DESIGN.md §4.4).
+- Logistic regrowth, so plants grazed down low regrow slowly at first.
+- Crowding lowers a seed's chance to take root smoothly (`1 − n / K`) rather than as a hard limit, which let density creep to about twice the knob value (DESIGN.md §5.1).
+- Each plant updates every 10 ticks, a tenth of them each tick, so plants are nearly free.
 
 **Build** (DESIGN.md §5.1)
 
-- **Spatial hash** for all entities, with radius queries. This is the core infrastructure for every later phase.
-- Plant entities: position, energy, max energy, age.
+- **Spatial hash** for all entities, with radius queries: one doubly linked list per cell, updated incrementally. This is the core infrastructure for every later phase.
+- Plant entities: position, energy, age, lifespan. Full energy is one knob for all plants.
 - Regrowth by biome.
 - Local seeding within a dispersal radius, crowding check, long-distance dispersal, plant lifespan.
 - Grazing death below the root reserve. There are no grazers yet, so it is triggered by the graze brush below.
-- Plants in the snapshot as typed arrays, drawn by Pixi with size or brightness by energy.
-- First stats panel: plant count and total plant energy over time, overall and per biome.
+- Plants in the snapshot as typed arrays, drawn by a Pixi `ParticleContainer` with size and brightness by energy. The map dims while plants are shown.
+- First stats panel: plant count and total plant energy over time, overall and per biome. Per biome, both are per 100 by 100 units of that biome's land, so every biome reads on one scale. Stats are recorded in `core` and thinned as a run grows.
+- **Live knobs**: knobs marked live apply at once to the running world. All plant knobs except starting plants and plant energy are live, so effects can be toggled mid-run.
+- Plant count in the status panel and a plant summary in the CLI.
 
 **Debug tools**
 
-- **Graze brush**: click and drag to strip plant energy in a circle. This is the stand-in for herbivores, so overgrazing and recovery can be tested now.
-- **Plant brush**: click to place plants.
-- Toggles for local seeding, long-distance dispersal, and lifespan.
+- **Graze brush**: click and drag to graze plants in a circle down to a chosen share of full energy. Below the root reserve, that kills them. This is the stand-in for herbivores, so overgrazing and recovery can be tested now.
+- **Plant brush**: click or drag to sow fully grown plants in a circle, following the usual rules for taking root.
+- Toggles for local seeding, long-distance dispersal, and lifespan, in the sidebar.
 
 **Automated tests**
 
-- Spatial hash radius queries match a brute-force search on random data.
-- Plants never seed into impassable terrain or past the crowding limit.
+- Spatial hash radius queries match a brute-force search on random data, through inserts, moves, and removes.
+- Plants never seed into water or where the ground is already as crowded as the biome allows.
 - Determinism with plants: same seed, same hash after many ticks.
+- Patches spread from a few plants and level off. Density scales with the square root of productivity, and productivity 0 grows nothing.
+- Regrowth from 10% to 90% takes the regrowth time at rainforest productivity, and twice as long at a quarter of it.
+- Grazing below the root reserve kills, and above it the plant survives and regrows. The graze brush acts only within its radius.
+- Lifespan off means no deaths; on, every plant dies within one and a half times the mean.
+- A fully stripped world recovers only with long-distance dispersal.
+- Live knob changes apply at once and ignore knobs that need a new world.
+- The stats recorder thins to every other row when full, keeping the whole history.
 
 **Manual test checklist**
 

@@ -6,6 +6,7 @@ export {
   MAX_TERRAIN_CELLS,
   parseConfig,
   serializeConfig,
+  withLiveKnobs,
   type ParsedConfig,
   type WorldConfig,
 } from "./config.js";
@@ -21,8 +22,11 @@ export {
   type KnobSpec,
   type NumberKnobSpec,
 } from "./knobs.js";
+export { PLANT_UPDATE_STRIDE, PRODUCTIVITY_KNOBS, Plants, REFERENCE_PRODUCTIVITY, type PlantSnapshot, type PlantStats } from "./plants/index.js";
 export { Rng, type RngState } from "./rng.js";
-export { Simulation, type Snapshot } from "./simulation.js";
+export { Simulation, STATS_INTERVAL, type Snapshot } from "./simulation.js";
+export { SPATIAL_CELL_SIZE, SpatialHash } from "./spatial.js";
+export { STATS_BIOMES, STATS_COLUMNS, StatsRecorder, type StatsRows } from "./stats.js";
 export {
   Biome,
   BIOME_NAMES,

@@ -3,6 +3,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { SimulationControls, StatusPanel } from "./components/ControlPanel";
 import { SettingsPage } from "./components/SettingsPage";
 import { SidebarSettings } from "./components/SidebarSettings";
+import { StatsPanel } from "./components/StatsPanel";
 import { WorldCanvas } from "./components/WorldCanvas";
 import { SimClient } from "./sim/SimClient";
 
@@ -28,7 +29,18 @@ function Shell({ client }: { client: SimClient }) {
   const [draft, setDraft] = useState<WorldConfig>(() => makeConfig(DEFAULT_CONFIG));
   const status = useSyncExternalStore(client.subscribe, client.getStatus);
   const active = status.activeConfig;
-  const pending = active !== null && knobEntries().some(([key]) => draft[key] !== active[key]);
+  // Live knobs apply to the running world as soon as they change, so only the others can be pending.
+  const pending = active !== null && knobEntries().some(([key, spec]) => spec.applies === "new-world" && draft[key] !== active[key]);
+
+  const changeDraft = (next: WorldConfig) => {
+    setDraft(next);
+    if (!active) return;
+    const live: Partial<WorldConfig> = {};
+    for (const [key, spec] of knobEntries()) {
+      if (spec.applies === "live" && next[key] !== active[key]) Object.assign(live, { [key]: next[key] });
+    }
+    if (Object.keys(live).length > 0) client.updateConfig(live);
+  };
 
   const generate = (config: WorldConfig) => {
     client.init(config);
@@ -52,13 +64,16 @@ function Shell({ client }: { client: SimClient }) {
       <div className="content">
         {/* The world page stays mounted so the renderer and camera survive visits to settings. */}
         <div className="world-page">
-          <WorldCanvas client={client} />
+          <div className="world-column">
+            <WorldCanvas client={client} />
+            <StatsPanel client={client} />
+          </div>
           <aside className="panel">
             <SimulationControls client={client} />
             <SidebarSettings
               draft={draft}
               pending={pending}
-              onDraftChange={setDraft}
+              onDraftChange={changeDraft}
               onGenerate={generate}
               onOpenSettings={() => goTo("settings")}
             />
@@ -66,7 +81,7 @@ function Shell({ client }: { client: SimClient }) {
           </aside>
         </div>
         {page === "settings" && (
-          <SettingsPage draft={draft} pending={pending} onDraftChange={setDraft} onGenerate={generate} />
+          <SettingsPage draft={draft} pending={pending} onDraftChange={changeDraft} onGenerate={generate} />
         )}
       </div>
     </div>
