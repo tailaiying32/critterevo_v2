@@ -99,14 +99,14 @@ Phases 0 through 7 build the world and the body. Evolution starts in phase 8. Ex
 
 **Decided**
 
-- Coarse grid, one value per cell, no blending between cells. Cells are 10 units by default, about one critter, so the default 2000 by 2000 world is 200 by 200 cells.
+- Coarse grid, one value per cell, no blending between cells. Cells are 10 units by default, about one critter, so the default 3000 by 3000 world is 300 by 300 cells.
 - Pixel-art map style: one flat-colored pixel per cell, values in steps, and relief shading in three levels (DESIGN.md §14.1). Chosen over smooth rendering because plain fractal noise looks both blurry and bumpy when drawn smoothly; steps keep edges crisp and hide small bumps.
 - Noise from the `simplex-noise` library. Elevation, temperature noise, and moisture noise each have their own random stream.
 - Gentle noise: persistence × lacunarity well below 1, so land is smooth hills rather than bumps (DESIGN.md §4.2.2). Defaults chosen from the contact sheet: 5 octaves at persistence 0.3, about 6 specks per world.
 - Water, shallow water, and mountain shares set by coverage knobs.
 - Temperature in °F, rainfall in inches per year. Elevation maps to height in feet, and temperature drops with height by a lapse rate.
 - One sea-level temperature everywhere (70°F), so climate zones follow height. Latitude cooling is a knob, off by default.
-- Terrain and biome balance: landform size 900 units, peak height 30,000 ft, lowland flatness 0.85 (for plains), rainfall skew 1, rain near water +40 in within 100 units, and inland drying 0.25 over 200 units (DESIGN.md §4.2.3). Rain belts by latitude are deferred.
+- Terrain and biome balance: landform size 1,350 units, peak height 30,000 ft, lowland flatness 0.85 (for plains), rainfall skew 1, rain near water +40 in within 150 units, and inland drying 0.25 over 300 units (DESIGN.md §4.2.3). Rain belts by latitude are deferred.
 - Biomes from Whittaker's real-world thresholds, applied to each cell's own temperature and rainfall. Tundra and taiga are set by temperature. Mountains get biomes.
 
 **Already built on this branch**

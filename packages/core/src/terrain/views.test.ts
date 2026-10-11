@@ -16,7 +16,7 @@ import {
   viewPixels,
 } from "./views.js";
 
-const terrain = generateTerrain(makeConfig({ width: 600, height: 400 }));
+const terrain = generateTerrain(makeConfig({ width: 600, height: 400, landformSize: 300 }));
 const n = terrain.cols * terrain.rows;
 const pixel = (pixels: Uint8ClampedArray, i: number) => [...pixels.subarray(i * 4, i * 4 + 4)];
 

@@ -99,7 +99,7 @@ function fnv1aBytes(bytes: Uint8Array, seed: number): number {
 function hashTerrain(terrain: TerrainData): number {
   const { sea, shallow, mountain, peak } = terrain.levels;
   const levelBits = new Float64Array([sea, shallow, mountain, peak, terrain.peakHeight, terrain.lowlandFlatness]);
-  let hash = fnv1aWords([terrain.cols, terrain.rows, terrain.cellSize, terrain.width, terrain.height]);
+  let hash = fnv1aWords([terrain.cols, terrain.rows, terrain.cellSize, terrain.width, terrain.height, terrain.landformSize]);
   hash = fnv1aBytes(new Uint8Array(levelBits.buffer), hash);
   const { elevation, terrainType, temperature, distanceToWater, rainfall, biome } = terrain;
   const fields = [elevation, terrainType, temperature, distanceToWater, rainfall, biome];

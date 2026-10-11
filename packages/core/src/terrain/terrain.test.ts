@@ -7,8 +7,9 @@ import { biomeAt, cellIndexAt, distanceToWaterAt, elevationAt, heightAt, rainfal
 import { countSpecks } from "./specks.js";
 import { classifyTerrain, heightOf, isWater, TerrainType, type TerrainData } from "./types.js";
 
-/** A smaller world than the default, so tests stay fast. */
-const small = (overrides: Partial<WorldConfig> = {}) => generateTerrain(makeConfig({ width: 800, height: 600, ...overrides }));
+/** A smaller world than the default, with landforms sized to it, so tests stay fast and varied. */
+const small = (overrides: Partial<WorldConfig> = {}) =>
+  generateTerrain(makeConfig({ width: 800, height: 600, landformSize: 400, ...overrides }));
 
 function shareOf(terrain: TerrainData, match: (type: TerrainType) => boolean): number {
   let count = 0;
@@ -421,7 +422,7 @@ function drawn(picture: string[], cellSize = 10): TerrainData {
     biome: new Uint8Array(n),
   };
   const size = { cols, rows, cellSize, width: cols * cellSize, height: rows * cellSize };
-  return { ...size, levels, peakHeight: 1000, lowlandFlatness: 0, terrainType, ...flat };
+  return { ...size, levels, landformSize: 100, peakHeight: 1000, lowlandFlatness: 0, terrainType, ...flat };
 }
 
 describe("countSpecks", () => {

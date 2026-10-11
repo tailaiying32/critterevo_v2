@@ -53,6 +53,7 @@ export function generateTerrain(config: WorldConfig): TerrainData {
     width: config.width,
     height: config.height,
     levels,
+    landformSize: config.landformSize,
     peakHeight: config.peakHeight,
     lowlandFlatness: config.lowlandFlatness,
     elevation,

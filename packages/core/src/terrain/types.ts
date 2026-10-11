@@ -36,6 +36,8 @@ export interface TerrainData {
   width: number;
   height: number;
   levels: TerrainLevels;
+  /** Approximate size of the largest landforms, in world units (the landform size knob). */
+  landformSize: number;
   /** Height of the highest cell, in feet above sea level. */
   peakHeight: number;
   /** How far land heights are bent toward sea level, 0 to 1 (docs/DESIGN.md §4.2.1 step 4). */

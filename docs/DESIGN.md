@@ -134,7 +134,7 @@ World state (config, seed, tick, all entities, innovation table, PRNG state) ser
 
 ### 4.2 Terrain grid
 
-A coarse grid sits underneath the continuous space. Cells are 10 world units across by default (a knob), about one critter, as v1's cells were, so the default 2000 by 2000 world is 200 by 200 cells. Each cell holds one value per field, with no blending between cells. Entities sample the cell under them, or ahead of them, by converting continuous position to cell coordinates.
+A coarse grid sits underneath the continuous space. Cells are 10 world units across by default (a knob), about one critter, as v1's cells were, so the default 3000 by 3000 world is 300 by 300 cells. Each cell holds one value per field, with no blending between cells. Entities sample the cell under them, or ahead of them, by converting continuous position to cell coordinates.
 
 Each cell stores:
 
@@ -179,7 +179,7 @@ Starting values, tuned in Phase 2. The noise defaults were chosen from the conta
 | Knob | Group | Default |
 |---|---|---|
 | Cell size | World | 10 units |
-| Landform size | Terrain | 900 units |
+| Landform size | Terrain | 1,350 units |
 | Octaves | Terrain | 5 |
 | Persistence | Terrain | 0.3 |
 | Lacunarity | Terrain | 2 |
@@ -195,15 +195,15 @@ Starting values, tuned in Phase 2. The noise defaults were chosen from the conta
 | Driest rainfall, wettest rainfall | Climate | 5, 120 in per year |
 | Rainfall skew | Climate | 1 |
 | Rain near water | Climate | +40 in per year |
-| Shore rain range | Climate | 100 units |
+| Shore rain range | Climate | 150 units |
 | Inland drying | Climate | 0.25 |
-| Inland drying range | Climate | 200 units |
+| Inland drying range | Climate | 300 units |
 
 With these defaults the tallest peak is 108°F colder than sea level, about −38°F, so climate zones ring every mountain: a thin fringe of savanna and rainforest along the warmest shores, broad grassland and forest plains, taiga up the slopes, and tundra on the summits. Sea level sits just above the 68°F tropical line, so only land within about 550 ft of sea level is tropical.
 
-The climate defaults were tuned for a balanced mix of biomes. Averaged over 8 seeds, land is about 10% tundra, 13% taiga, 38% grassland, 16% temperate forest, 8% temperate rainforest, 1% desert, 9% savanna, and 5% rainforest. These settings matter most:
+Distances that shape the land (landform size, shore rain range, inland drying range) are set in proportion to the world: for the default 3000 unit world, 1,350, 150, and 300 units. Scaling them together with world size keeps the same map at a different size. The climate defaults were tuned for a balanced mix of biomes. Averaged over 8 seeds, land is about 10% tundra, 13% taiga, 38% grassland, 16% temperate forest, 8% temperate rainforest, 1% desert, 9% savanna, and 5% rainforest. These settings matter most:
 
-- **Peak height, lowland flatness, and landform size** decide how much land sits in each climate zone, since height alone sets temperature, and how much of it is plains. With Earth's lapse rate, cold zones need tall peaks: with 12,000 ft peaks there is no tundra at all. Lowland flatness 0.85 and 900 unit landforms leave about a fifth of the land as broad, flat plains with separate mountains rising out of them; plain noise alone gives almost none.
+- **Peak height, lowland flatness, and landform size** decide how much land sits in each climate zone, since height alone sets temperature, and how much of it is plains. With Earth's lapse rate, cold zones need tall peaks: with 12,000 ft peaks there is no tundra at all. Lowland flatness 0.85 and large landforms leave about a fifth of the land as broad, flat plains with separate mountains rising out of them; plain noise alone gives almost none.
 - **Sea-level temperature** sets how much of the world is tropical. Below 68°F there are no tropical biomes at all; at 70°F they are a thin fringe along the shores.
 - **Rainfall skew** makes very wet places rare. With rainfall spread evenly, as much land gets 100 to 120 inches as gets 5 to 25, and temperate rainforest covers a fifth of the land.
 - **Wetter shores, drier interiors.** Every body of water sits at sea level, the hottest ground, so the land around water is always tropical. Without rain near water and inland drying, that hot ring is mostly desert and savanna. With them, shores are savanna and rainforest, and the few deserts sit inland. Deserts are rare because hot land far from water barely exists when climate follows height.
@@ -592,7 +592,7 @@ Conflict rules, such as two critters eating the last bite of one plant or one cr
   - **Elevation**: 8 bands of height, from green lowlands to white peaks, and 3 bands of water depth.
   - **Temperature**: 9°F steps starting at freezing, blue below and red above. The biome thresholds (23, 41, and 68°F) fall on step edges, so bands line up with biome borders.
   - **Rainfall**: 10 inch steps of one blue. The biome thresholds (20, 40, 80, and 100 in) fall on step edges.
-  - **Relief** (on by default): shading from elevation, lit from the northwest, in three levels (lit, plain, shadow, plus a deeper shadow on steep slopes) over the biome, terrain type, and elevation views. Gentle slopes stay plain. Not offered for temperature and rainfall, where lightness carries the value.
+  - **Relief** (on by default): shading from elevation, lit from the northwest, in three levels (lit, plain, shadow, plus a deeper shadow on steep slopes) over the biome, terrain type, and elevation views. Gentle slopes stay plain. Not offered for temperature and rainfall, where lightness carries the value. The shading's exaggeration scales with landform size, so a bigger world with proportionally bigger landforms looks the same.
 
   The views are pure functions in `core`, shared with the CLI contact sheet so both draw the same thing. Plants, corpses, and critters are drawn as sprites; plants, corpses, and critters as sprites; pan and zoom; click to select. Optional vision-cone overlay for the selected critter, showing each wedge, with binocular and monocular zones shaded differently.
 - **Critter coloring modes**: by species, by digestion trait, by energy, by generation.

@@ -67,10 +67,12 @@ export const LAND_HEIGHT_RAMP: Ramp = [
   [1, [255, 255, 255]],
 ];
 /**
- * Vertical exaggeration for relief shading, in world units per unit of elevation.
- * Fixed, so a smoother world really does look smoother.
+ * Vertical exaggeration for relief shading, per world unit of landform size. It
+ * scales with landform size, so a bigger world with bigger landforms looks the
+ * same as a smaller one, and fixed otherwise, so a smoother world really does
+ * look smoother. Movement uses the true slopes, not this.
  */
-const RELIEF = 400;
+const RELIEF_PER_LANDFORM = 400 / 900;
 /** Slopes whose light is within this of flat ground are drawn plain, so gentle bumps don't show. */
 const FLAT_BAND = 0.1;
 
@@ -229,6 +231,7 @@ function elevationColor(terrain: TerrainData): (i: number) => RGB {
  */
 function reliefShade(terrain: TerrainData): Float32Array {
   const { cols, rows, cellSize, elevation, terrainType, levels } = terrain;
+  const relief = RELIEF_PER_LANDFORM * terrain.landformSize;
   const landScale = (levels.peak - levels.sea) / (terrain.peakHeight || 1);
   const surface = elevation.map((e) => (e < levels.sea ? levels.sea : levels.sea + heightOf(terrain, e) * landScale));
   const at = (col: number, row: number) =>
@@ -238,8 +241,8 @@ function reliefShade(terrain: TerrainData): Float32Array {
     for (let col = 0; col < cols; col++) {
       const i = row * cols + col;
       if (isWater(terrainType[i] as TerrainType)) continue;
-      const dx = ((at(col + 1, row) - at(col - 1, row)) / (2 * cellSize)) * RELIEF;
-      const dy = ((at(col, row + 1) - at(col, row - 1)) / (2 * cellSize)) * RELIEF;
+      const dx = ((at(col + 1, row) - at(col - 1, row)) / (2 * cellSize)) * relief;
+      const dy = ((at(col, row + 1) - at(col, row - 1)) / (2 * cellSize)) * relief;
       const light = (dx + dy + 1) / Math.sqrt(dx * dx + dy * dy + 1);
       if (light > 1 + FLAT_BAND) shade[i] = RELIEF_SHADES.lit;
       else if (light < 1 - 3 * FLAT_BAND) shade[i] = RELIEF_SHADES.deepShadow;
