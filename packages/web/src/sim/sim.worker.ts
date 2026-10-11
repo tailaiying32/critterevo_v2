@@ -4,7 +4,7 @@
  * advances in whole ticks of identical size, and the speed setting only
  * changes how many ticks run per wall-clock second.
  */
-import { Simulation, type Snapshot, type StatsRows, type TerrainData } from "@critter-evo/core";
+import { ControllerKind, Simulation, type Snapshot, type StatsRows, type TerrainData } from "@critter-evo/core";
 import type { Brush, FromWorker, Speed, ToWorker } from "./protocol";
 
 // The project's tsconfig uses DOM types, so describe the worker scope we use.
@@ -20,6 +20,8 @@ const STEP_BUDGET_MS = 12;
 const HASH_INTERVAL_MS = 500;
 
 let sim: Simulation | null = null;
+/** Id of the selected critter, or -1. */
+let selectedId = -1;
 let running = false;
 let speed: Speed = 30;
 let accumulator = 0;
@@ -45,6 +47,7 @@ ctx.onmessage = (event) => {
       const start = performance.now();
       sim = new Simulation(msg.config);
       const generationMs = performance.now() - start;
+      selectedId = -1;
       accumulator = 0;
       hashStale = true;
       dirty = true;
@@ -90,6 +93,50 @@ ctx.onmessage = (event) => {
         dirty = true;
       }
       break;
+    case "pick":
+      if (sim) {
+        selectedId = sim.critterAt(msg.x, msg.y, msg.tolerance);
+        dirty = true;
+      }
+      break;
+    case "deselect":
+      selectedId = -1;
+      dirty = true;
+      break;
+    case "spawn":
+      if (sim) {
+        const id = sim.spawnCritter(msg.x, msg.y, msg.traits, msg.controller);
+        if (id > 0) selectedId = id;
+        hashStale = true;
+        dirty = true;
+      }
+      break;
+    case "setController":
+      if (sim) {
+        sim.setController(msg.id, msg.controller);
+        hashStale = true;
+        dirty = true;
+      }
+      break;
+    case "removeCritter":
+      if (sim) {
+        sim.removeCritter(msg.id);
+        if (msg.id === selectedId) selectedId = -1;
+        hashStale = true;
+        dirty = true;
+      }
+      break;
+    case "drive":
+      if (sim) {
+        const info = selectedId > 0 ? sim.critterInfo(selectedId) : null;
+        if (info && info.controller !== ControllerKind.Keyboard && (msg.turn !== 0 || msg.thrust !== 0)) {
+          sim.setController(selectedId, ControllerKind.Keyboard);
+        }
+        sim.drive(msg.turn, msg.thrust);
+        hashStale = true;
+        dirty = true;
+      }
+      break;
   }
 };
 
@@ -115,8 +162,9 @@ function newStats(sim: Simulation): StatsRows | null {
 }
 
 function frameBuffers(snapshot: Snapshot, stats: StatsRows | null): Transferable[] {
-  const { plants } = snapshot;
+  const { plants, critters } = snapshot;
   const buffers: ArrayBufferLike[] = [plants.x.buffer, plants.y.buffer, plants.energy.buffer];
+  for (const field of [critters.id, critters.x, critters.y, critters.heading, critters.radius, critters.controller]) buffers.push(field.buffer);
   if (stats) buffers.push(...stats.data.map((column) => column.buffer));
   return buffers as Transferable[];
 }
@@ -131,11 +179,13 @@ function copyTerrain(t: TerrainData): TerrainData {
     distanceToWater: t.distanceToWater.slice(),
     rainfall: t.rainfall.slice(),
     biome: t.biome.slice(),
+    slopeX: t.slopeX.slice(),
+    slopeY: t.slopeY.slice(),
   };
 }
 
 function terrainBuffers(t: TerrainData): Transferable[] {
-  const fields = [t.elevation, t.terrainType, t.temperature, t.distanceToWater, t.rainfall, t.biome];
+  const fields = [t.elevation, t.terrainType, t.temperature, t.distanceToWater, t.rainfall, t.biome, t.slopeX, t.slopeY];
   return fields.map((field) => field.buffer as ArrayBuffer);
 }
 
@@ -186,7 +236,9 @@ function frame(): void {
   if (sim && dirty) {
     const snapshot = sim.snapshot();
     const stats = newStats(sim);
-    ctx.postMessage({ type: "frame", snapshot, running, measuredTps, stateHash, stats }, frameBuffers(snapshot, stats));
+    const selected = selectedId > 0 ? sim.critterInfo(selectedId) : null;
+    if (!selected) selectedId = -1;
+    ctx.postMessage({ type: "frame", snapshot, selected, running, measuredTps, stateHash, stats }, frameBuffers(snapshot, stats));
     dirty = false;
   }
 

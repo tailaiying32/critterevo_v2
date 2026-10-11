@@ -3,6 +3,7 @@ export { distanceToWater, seaLevelTemperatureAt } from "./climate.js";
 export { generateTerrain } from "./generate.js";
 export { biomeAt, cellIndexAt, distanceToWaterAt, elevationAt, heightAt, rainfallAt, temperatureAt, terrainTypeAt } from "./lookup.js";
 export { createFractalNoise, type FractalNoiseSettings } from "./noise.js";
+export { depthShare, slopeField } from "./slope.js";
 export { countSpecks, SPECK_AREA, type SpeckCount } from "./specks.js";
 export {
   classifyTerrain,

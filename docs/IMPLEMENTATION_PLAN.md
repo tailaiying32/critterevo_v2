@@ -24,7 +24,7 @@ Three rules apply throughout
 | 0 ✅ | Scaffold | Empty world, play, pause, speed, tick counter |
 | 1 ✅ | Viewport and knobs | Pan, zoom, a world settings panel generated from config |
 | 2 ✅ | Terrain and climate | Generated landscape with biomes and climate overlays |
-| 3 | Plants | Plants spreading, competing, and recovering from damage |
+| 3 ✅ | Plants | Plants spreading, competing, and recovering from damage |
 | 4 | Bodies and movement | Critters you can drive with the keyboard |
 | 5 | Metabolism | Critters that eat, drink, burn energy, die, and leave corpses |
 | 6 | Vision | Two-eye wedge vision you can see and inspect live |
@@ -99,14 +99,14 @@ Phases 0 through 7 build the world and the body. Evolution starts in phase 8. Ex
 
 **Decided**
 
-- Coarse grid, one value per cell, no blending between cells. Cells are 10 units by default, about one critter, so the default 3000 by 3000 world is 300 by 300 cells.
+- Coarse grid, one value per cell, no blending between cells. Cells are 10 units by default, about one critter, so the default 5000 by 5000 world is 500 by 500 cells.
 - Pixel-art map style: one flat-colored pixel per cell, values in steps, and relief shading in three levels (DESIGN.md §14.1). Chosen over smooth rendering because plain fractal noise looks both blurry and bumpy when drawn smoothly; steps keep edges crisp and hide small bumps.
 - Noise from the `simplex-noise` library. Elevation, temperature noise, and moisture noise each have their own random stream.
 - Gentle noise: persistence × lacunarity well below 1, so land is smooth hills rather than bumps (DESIGN.md §4.2.2). Defaults chosen from the contact sheet: 5 octaves at persistence 0.3, about 6 specks per world.
 - Water, shallow water, and mountain shares set by coverage knobs.
 - Temperature in °F, rainfall in inches per year. Elevation maps to height in feet, and temperature drops with height by a lapse rate.
 - One sea-level temperature everywhere (70°F), so climate zones follow height. Latitude cooling is a knob, off by default.
-- Terrain and biome balance: landform size 1,350 units, peak height 30,000 ft, lowland flatness 0.85 (for plains), rainfall skew 1, rain near water +40 in within 150 units, and inland drying 0.25 over 300 units (DESIGN.md §4.2.3). Rain belts by latitude are deferred.
+- Terrain and biome balance: landform size 2,250 units, peak height 30,000 ft, lowland flatness 0.85 (for plains), rainfall skew 1, rain near water +40 in within 250 units, and inland drying 0.25 over 500 units (DESIGN.md §4.2.3). Rain belts by latitude are deferred.
 - Biomes from Whittaker's real-world thresholds, applied to each cell's own temperature and rainfall. Tundra and taiga are set by temperature. Mountains get biomes.
 
 **Also built**
@@ -168,12 +168,12 @@ The CLI terrain summary grows with each step: grid size, generation time, terrai
 
 ---
 
-## Phase 3 — Plants
+## Phase 3 — Plants ✅
 
 **Decided**
 
 - §16 Q18: uPlot for the stats charts. Built for fast live time series, about 50 KB.
-- §16 Q19: about 20,000 plants and 1,000 critters on the default 3000 by 3000 world. Spatial hash cells are 32 units. Budget: plants alone run at 5,000 ticks per second or more at Max.
+- §16 Q19: about 1,000 critters on the default world. Plants settle at about 56,000 on the default 5000 by 5000 world (about 20,000 on the earlier 3000 by 3000 default, at the same density). Spatial hash cells are 32 units. Budget: plants alone run at 5,000 ticks per second or more at Max.
 - Biomes differ for plants by one productivity knob each, defaulting to real net primary productivity (Whittaker and Likens). Plant density and regrowth speed both scale with its square root, so plant energy produced per area follows the real ratios. Plant size is the same everywhere (DESIGN.md §4.4).
 - Logistic regrowth, so plants grazed down low regrow slowly at first.
 - Crowding lowers a seed's chance to take root smoothly (`1 − n / K`) rather than as a hard limit, which let density creep to about twice the knob value (DESIGN.md §5.1).
@@ -224,10 +224,16 @@ The CLI terrain summary grows with each step: grid size, generation time, terrai
 
 ## Phase 4 — Bodies and movement
 
-**Decide first**
+**Decided**
 
-- §16 Q2: terrain slowdown factors and whether slow terrain costs energy. Energy matters from phase 5.
-- §16 Q14: critter-critter collision behavior.
+- §16 Q2: terrain slowdown (DESIGN.md §4.3.1). Shallow water slows by depth, `(1 − d)^(k / size)`, so bigger critters wade deeper. Slope slows by Tobler's hiking function on the grade along the heading, capped at flat speed, with grade felt in proportion to size, so smaller critters climb more easily. Both read the cell under the critter's center; slope comes from per-cell slope vectors in exact feet.
+- Map scale: a knob for feet per world unit, default 240 ft, chosen from measured slopes on the default world: half of land under about 5% grade, half of mountains over about 18%, the steepest about 50%. It scales inversely with landform size, so a bigger world with bigger landforms keeps the same slopes.
+- Default world 5000 by 5000 units, with the distances that shape the land scaled to match by 5/3: landform size 2,250, shore rain range 250, inland drying range 500. The biome mix is unchanged.
+- Slow terrain costs energy too. Phase 4 computes the terrain factor and shows it in the inspector; Phase 5 charges for it.
+- No movement cost by biome: every biome moves at full speed, and only slope and water depth slow critters.
+- §16 Q14: soft repulsion (DESIGN.md §8). Overlapping critters are pushed apart, split by mass, with all pushes computed from the same positions and then applied together. Pushes obey walls. Collisions have an on/off toggle.
+- Body: size is relative, 1 being a typical critter 10 units across. Radius is 5 × size, mass is size³, and acceleration falls as mass^(−1/3).
+- Walls and deep water block the whole body, not just the center. Blocked moves slide along the wall.
 
 **Build** (DESIGN.md §6, §8)
 
@@ -503,7 +509,7 @@ The CLI terrain summary grows with each step: grid size, generation time, terrai
 **Build**
 
 - CLI knob sweeps: run a grid of knob values across several seeds and write one CSV per run plus a summary.
-- Performance pass: profile, move hot data to typed arrays, and consider WebGL instancing in Pixi if entity counts need it.
+- Performance pass: profile, move hot data to typed arrays, and consider WebGL instancing in Pixi if entity counts need it. Bring plants alone back over 5,000 ticks per second on the default 5000 by 5000 world (about 4,200 in the browser as of Phase 4).
 - Public deploy and README with screenshots.
 - Revisit the deferred list in DESIGN.md §18 and choose what comes next: seasons, climate drift, parasites, and others.
 

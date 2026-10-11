@@ -3,13 +3,14 @@ import { Rng } from "../rng.js";
 import { Biome, classifyBiome } from "./biomes.js";
 import { distanceToWater, generateRainfall, generateTemperature } from "./climate.js";
 import { createFractalNoise, type FractalNoiseSettings } from "./noise.js";
+import { slopeField } from "./slope.js";
 import { classifyTerrain, isWater, type TerrainData, type TerrainLevels, type TerrainType } from "./types.js";
 
 /**
  * Generates the terrain grid (docs/DESIGN.md §4.2.1): fractal elevation at each
  * cell center, terrain types from elevation thresholds chosen so each type covers
- * the share of the world its knob asks for, then the climate. Pure function of
- * the config.
+ * the share of the world its knob asks for, then the climate and the slope of
+ * each cell. Pure function of the config.
  */
 export function generateTerrain(config: WorldConfig): TerrainData {
   const cellSize = config.cellSize;
@@ -45,6 +46,7 @@ export function generateTerrain(config: WorldConfig): TerrainData {
   for (let i = 0; i < n; i++) {
     biome[i] = isWater(terrainType[i] as TerrainType) ? Biome.None : classifyBiome(temperature[i]!, rainfall[i]!);
   }
+  const { slopeX, slopeY } = slopeField(grid, terrainType);
 
   return {
     cols,
@@ -62,6 +64,8 @@ export function generateTerrain(config: WorldConfig): TerrainData {
     distanceToWater: distance,
     rainfall,
     biome,
+    slopeX,
+    slopeY,
   };
 }
 

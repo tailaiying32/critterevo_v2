@@ -54,6 +54,10 @@ export interface TerrainData {
   rainfall: Float32Array;
   /** Biome of each cell, from its own temperature and rainfall. Biome.None for water. */
   biome: Uint8Array;
+  /** Slope of each cell toward +x (east), in feet of height per world unit. Movement reads it (docs/DESIGN.md §4.3.1). */
+  slopeX: Float32Array;
+  /** Slope of each cell toward +y (south), in feet of height per world unit. */
+  slopeY: Float32Array;
 }
 
 export function classifyTerrain(levels: TerrainLevels, elevation: number): TerrainType {

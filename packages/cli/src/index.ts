@@ -70,6 +70,8 @@ console.log();
 printTerrainSummary(sim.terrain);
 console.log();
 printPlantSummary(sim);
+console.log();
+printCritterSummary(sim);
 
 function printTerrainSummary(terrain: TerrainData): void {
   const n = terrain.cols * terrain.rows;
@@ -119,6 +121,34 @@ function printPlantSummary(sim: Simulation): void {
     const density = area > 0 ? ((stats.countByBiome[biome]! / area) * 10000).toFixed(1) : "–";
     console.log(`  ${BIOME_NAMES[biome]!.padEnd(22)}${String(stats.countByBiome[biome]).padStart(7)}${density.padStart(8)}`);
   }
+}
+
+function printCritterSummary(sim: Simulation): void {
+  const { critters } = sim;
+  const values = (field: Float64Array) => {
+    const out: number[] = [];
+    for (let i = 0; i < critters.slots; i++) if (critters.alive[i]) out.push(field[i]!);
+    return out;
+  };
+  const range = (field: Float64Array, digits: number) => {
+    const v = values(field);
+    if (v.length === 0) return "–";
+    const mean = v.reduce((a, b) => a + b, 0) / v.length;
+    return `${Math.min(...v).toFixed(digits)} to ${Math.max(...v).toFixed(digits)}, mean ${mean.toFixed(digits)}`;
+  };
+  let totalSpeed = 0;
+  let blocked = 0;
+  for (let i = 0; i < critters.slots; i++) {
+    if (!critters.alive[i]) continue;
+    totalSpeed += Math.hypot(critters.vx[i]!, critters.vy[i]!);
+    blocked += critters.blocked[i]!;
+  }
+  const meanSpeed = critters.count > 0 ? totalSpeed / critters.count : 0;
+  console.log(`critters    ${critters.count.toLocaleString("en-US")}, moving at ${meanSpeed.toFixed(1)} u/s on average, ${blocked} against a wall`);
+  if (critters.count === 0) return;
+  console.log(`  size        ${range(critters.size, 2)}`);
+  console.log(`  max speed   ${range(critters.maxSpeed, 1)} u/s`);
+  console.log(`  turn rate   ${range(critters.turnRate, 0)} °/s`);
 }
 
 /** "min to max, mean x" of a field over land, or null if there is no land. */

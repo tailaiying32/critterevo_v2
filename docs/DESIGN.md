@@ -43,7 +43,7 @@ Design principles:
 | Food | Regrowing plant entities, growth set by biome | Decided |
 | Plant growth | Logistic regrowth toward full energy. Each biome has one productivity, defaulting to its real net primary productivity; plant density and regrowth speed both scale with its square root | Decided |
 | Spatial index | Uniform hash, 32 unit cells, a linked list per cell | Decided |
-| Population target | About 20,000 plants and 1,000 critters on the default 3000 by 3000 world | Decided |
+| Population target | About 1,000 critters on the default 5000 by 5000 world, where plants settle at about 56,000 | Decided |
 | Charts | uPlot | Decided |
 | Corpses | Dead critters become meat | Decided |
 | Brain | NEAT with crossover, real innovation tracking | Decided |
@@ -64,7 +64,10 @@ Design principles:
 | Max age | Derived from body mass (lifespan ∝ mass^0.25), not a gene | Proposed |
 | Plant reproduction | Plants seed nearby, crowding lowers a seed's chance to take root, a few seeds land anywhere, plants age and die, and grazing below a root reserve kills | Decided |
 | Recurrent connections | Allowed | Proposed |
-| Terrain slowdown | Set by water depth, slope, and critter size; also costs energy | Proposed |
+| Terrain slowdown | Set by water depth, slope, and critter size; also costs energy. Slope follows Tobler's hiking function on a 240 ft per unit map scale | Decided |
+| Biome movement cost | None: every biome is walked at full speed; only slope and water depth slow critters | Decided |
+| Body scaling | Radius in proportion to size, mass to size³, acceleration to mass^(−1/3) | Decided |
+| Critter collision | Soft repulsion: overlapping critters are pushed apart, heavier ones less | Decided |
 | Temperature effect | Emergent from body size and surface area only | Decided |
 | Repo layout | npm workspaces monorepo: `core`, `web`, `cli` packages | Decided (scaffolded) |
 | Tooling | Vite, Vitest, ESLint, TypeScript 6.0 | Decided (scaffolded) |
@@ -138,7 +141,7 @@ World state (config, seed, tick, all entities, innovation table, PRNG state) ser
 
 ### 4.2 Terrain grid
 
-A coarse grid sits underneath the continuous space. Cells are 10 world units across by default (a knob), about one critter, as v1's cells were, so the default 3000 by 3000 world is 300 by 300 cells. Each cell holds one value per field, with no blending between cells. Entities sample the cell under them, or ahead of them, by converting continuous position to cell coordinates.
+A coarse grid sits underneath the continuous space. Cells are 10 world units across by default (a knob), about one critter, as v1's cells were, so the default 5000 by 5000 world is 500 by 500 cells. Each cell holds one value per field, with no blending between cells. Entities sample the cell under them, or ahead of them, by converting continuous position to cell coordinates.
 
 Each cell stores:
 
@@ -183,7 +186,7 @@ Starting values, tuned in Phase 2. The noise defaults were chosen from the conta
 | Knob | Group | Default |
 |---|---|---|
 | Cell size | World | 10 units |
-| Landform size | Terrain | 1,350 units |
+| Landform size | Terrain | 2,250 units |
 | Octaves | Terrain | 5 |
 | Persistence | Terrain | 0.3 |
 | Lacunarity | Terrain | 2 |
@@ -205,7 +208,7 @@ Starting values, tuned in Phase 2. The noise defaults were chosen from the conta
 
 With these defaults the tallest peak is 108°F colder than sea level, about −38°F, so climate zones ring every mountain: a thin fringe of savanna and rainforest along the warmest shores, broad grassland and forest plains, taiga up the slopes, and tundra on the summits. Sea level sits just above the 68°F tropical line, so only land within about 550 ft of sea level is tropical.
 
-Distances that shape the land (landform size, shore rain range, inland drying range) are set in proportion to the world: for the default 3000 unit world, 1,350, 150, and 300 units. Scaling them together with world size keeps the same map at a different size. The climate defaults were tuned for a balanced mix of biomes. Averaged over 8 seeds, land is about 10% tundra, 13% taiga, 38% grassland, 16% temperate forest, 8% temperate rainforest, 1% desert, 9% savanna, and 5% rainforest. These settings matter most:
+Distances that shape the land (landform size, shore rain range, inland drying range) are set in proportion to the world: for the default 5000 unit world, 2,250, 250, and 500 units. Scaling them together with world size keeps the same map at a different size. The climate defaults were tuned for a balanced mix of biomes. Averaged over 8 seeds, land is about 10% tundra, 13% taiga, 37% grassland, 17% temperate forest, 8% temperate rainforest, 1% desert, 9% savanna, and 5% rainforest. These settings matter most:
 
 - **Peak height, lowland flatness, and landform size** decide how much land sits in each climate zone, since height alone sets temperature, and how much of it is plains. With Earth's lapse rate, cold zones need tall peaks: with 12,000 ft peaks there is no tundra at all. Lowland flatness 0.85 and large landforms leave about a fifth of the land as broad, flat plains with separate mountains rising out of them; plain noise alone gives almost none.
 - **Sea-level temperature** sets how much of the world is tropical. Below 68°F there are no tropical biomes at all; at 70°F they are a thin fringe along the shores.
@@ -217,20 +220,23 @@ Distances that shape the land (landform size, shore rain range, inland drying ra
 | Type | Passable | Notes |
 |---|---|---|
 | Deep water | No | Water below the shallow band. Acts as a wall |
-| Shallow water | Yes, slow | The share of water closest to sea level, at the edges of seas and lakes. Drinkable. Slowdown depends on local conditions (open) |
-| Land | Yes | Movement cost and plant growth set by biome |
-| Mountain | Yes, slow | The highest share of the world. Has a biome like land, and is cold because of its height. Slowdown depends on local conditions (open) |
+| Shallow water | Yes, slow | The share of water closest to sea level, at the edges of seas and lakes. Drinkable. Slower the deeper it is (section 4.3.1) |
+| Land | Yes | Plant growth set by biome. Slowed by slope (section 4.3.1) |
+| Mountain | Yes, slow | The highest share of the world. Has a biome like land, and is cold because of its height. Slow because it is steep: slope slows it exactly as it slows land (section 4.3.1) |
 
 Terrain type affects movement and drinking. Climate and biome come only from temperature and rainfall.
 
-### 4.3.1 Terrain slowdown (Proposed)
+### 4.3.1 Terrain slowdown (Decided)
 
-- **Shallow water**: slowdown rises with depth, from near-land speed at the shore to impassable at the deep-water boundary.
-- **Mountains**: slowdown rises with local slope from the elevation field. Uphill costs more than downhill.
-- **Body size**: larger critters wade deeper water more easily. Smaller critters handle steep ground more easily.
-- **Energy**: slow terrain also raises movement energy cost per unit of distance, so crossing it is a tradeoff, not just a delay.
+Terrain lowers the speed a critter can reach: its target speed is multiplied by a wading factor and a slope factor, both read from the cell under its center. Neither factor is ever above 1. Biomes have no movement cost of their own; only slope and water depth slow critters.
 
-**Slope comes from the stored values, never the map colors.** The stepped colors and relief shading are drawing only; movement reads each cell's exact elevation and height in feet. Because a cell holds one height, charging for the jump at each cell edge would make climbing jerky. Instead, each cell gets a slope vector from its neighbors (the same math as relief shading, kept as exact numbers), and each tick a critter pays for the distance it moved along that slope: uphill costs more, downhill less, and moving across a slope is neutral. The map leaves gentle slopes unshaded, but critters still feel them; a slope view can show the exact values if that matters. Open: how many feet a world unit represents, since climbing cost depends on real steepness.
+- **Shallow water**: the factor is `(1 − d)^(k / size)`, where `d` is the cell's depth as a share of the shallow band, 0 at the shore and 1 at the deep-water boundary, and `k` is the wading drag knob (default 1). Near the shore it is close to full speed, and it falls to nothing at deep water for every critter. Bigger critters wade deeper water more easily: at half depth, a size 1 critter moves at half speed, a size 2 critter at 71%, and a size ½ critter at 25%.
+- **Slope**: the factor follows Tobler's hiking function, `exp(−3.5 × (|s + 0.05| − 0.05))`, capped at 1, where `s` is the grade along the critter's heading (rise over run, positive uphill). Uphill is slower than the same grade downhill, steep downhill is slow too, and moving across a slope is neutral. At a 20% grade a size 1 critter moves at 50% speed uphill and 70% downhill. The 3.5 is the slope sensitivity knob.
+- **Body size**: a critter feels slopes as steeper in proportion to its size, so `s` is multiplied by size. Small animals climb with little extra effort compared with what level running already costs them, while large ones pay much more (Taylor, Caldwell & Rowntree, 1972).
+- **Energy**: slow terrain also raises the energy cost per unit of distance, so crossing it is a tradeoff, not just a delay. Phase 4 computes the terrain factor; Phase 5 charges for it.
+- **Map scale**: a knob for how many feet of horizontal distance one world unit stands for, default 240 ft. The default 5000 unit world is then about 230 miles across, half of all land has a grade under about 5%, half of the mountains are steeper than about 18%, and the steepest are about 50%. Only slopes use the scale; critters are not drawn to it. Like the other distances that shape the land, it goes with world size: scaling the landforms up by some factor and the map scale down by the same factor keeps the same slopes.
+
+**Slope comes from the stored values, never the map colors.** The stepped colors and relief shading are drawing only; movement reads each cell's exact height in feet. Because a cell holds one height, charging for the jump at each cell edge would make climbing jerky. Instead, each cell gets a slope vector from its neighbors (the same central differences as relief shading, kept as exact numbers in feet per world unit), and a critter's grade is that vector's component along its heading, divided by the map scale. The map leaves gentle slopes unshaded, but critters still feel them; the hover readout shows each cell's exact grade.
 
 ### 4.4 Biomes
 
@@ -336,6 +342,8 @@ A critter's genome has two parts.
 
 | Value | Derivation | Status |
 |---|---|---|
+| Radius | `5 × size` world units, so a size 1 critter is 10 units across | Decided |
+| Mass | `size³`, so a size 1 critter has mass 1 | Decided |
 | Max age | `k_lifespan × mass^0.25` (larger animals live longer) | Proposed |
 | Asexual threshold | Function of physical traits, such as a fraction of max energy storage | Decided; exact formula open |
 
@@ -446,11 +454,12 @@ Each operator's probability is a world parameter, scaled by the critter's mutati
 
 ## 8. Movement and physics
 
-- Each tick: heading changes by `turn × turnRate × dt`. Velocity moves toward `thrust × maxSpeed` along the heading.
-- Mass derives from size. Larger critters accelerate more slowly.
-- Terrain movement cost multiplier applies by biome.
-- Walls and impassable terrain stop movement.
-- Critter-to-critter collision behavior is an open question.
+Each tick, after every critter has decided (section 13):
+
+- **Turning**: heading changes by `turn × turnRate × dt`. Turning depends on the turn rate trait alone.
+- **Speed**: velocity moves toward a target velocity along the heading, `thrust × maxSpeed × terrain factor` (section 4.3.1), by at most `acceleration × dt`. Acceleration is `k_accel × mass^(−1/3)`: muscle force grows with cross-section, mass^(2/3), so acceleration falls as mass grows. Large critters are slow to speed up, slow down, and change direction: at full speed their velocity swings around more slowly than their heading, so they skid through turns.
+- **Walls**: a critter's whole body stays inside the world and off deep-water cells. A move that would overlap either slides along it instead, keeping only the part of the move that is clear, and the blocked part of the velocity is dropped.
+- **Collisions (soft repulsion)**: critters that overlap are pushed apart along the line between their centers. About two thirds of the overlap is removed over the push-apart time knob (default 0.05 s), split by mass so a heavier critter moves less. Every push is computed from everyone's positions after moving, then applied together, so the order critters are processed in doesn't matter. Pushes obey the walls and leave velocity alone. Collisions can be turned off, and critters then pass through each other.
 
 ---
 
@@ -669,7 +678,7 @@ Recorded in `core` every 30 ticks from tick 0, column by column. When 2,048 rows
 ### Decided in spirit, details open
 
 1. **Hydration details.** Decided: hydration is a separate resource. Open: what drives the drain rate, and whether food supplies any water.
-2. **Terrain slowdown conditions.** Decided: shallow water and mountains are passable but slow, and slope is read from stored heights through a per-cell slope vector, not from the map's steps. Proposed factors in section 4.3.1. Open: the scale of a world unit in feet.
+2. ~~Terrain slowdown conditions~~ Resolved: wading by depth and size, slope by Tobler's hiking function and size, on a 240 ft per unit map scale knob. No movement cost by biome (section 4.3.1).
 3. ~~Field of view~~ Resolved: evolvable.
 4. **Wedge content encoding.** One-hot per category (about 6 inputs per wedge), a smaller encoding, or extra detail about critters seen, such as relative size or genetic similarity?
 4a. ~~Monocular distance degradation~~ Resolved: seeded Gaussian noise, with coarse bins as the fallback if too slow.
@@ -693,7 +702,7 @@ Recorded in `core` every 30 ticks from tick 0, column by column. When 2,048 rows
 
 ### Physics and combat
 
-14. Critter-critter collision: pass through, soft repulsion, or hard?
+14. ~~Critter-critter collision~~ Resolved: soft repulsion, split by mass (section 8).
 15. Attack cooldown, and energy cost per strike.
 16. Heat stress: symmetric with cold stress, or does it scale differently with size?
 
@@ -701,7 +710,7 @@ Recorded in `core` every 30 ticks from tick 0, column by column. When 2,048 rows
 
 17. ~~Hosting~~ Resolved: GitHub Pages.
 18. ~~Charting library for the stats panel~~ Resolved: uPlot, for fast live time series. Trait-over-time heatmaps (Phase 8) will be custom canvas.
-19. ~~Target world size and population~~ Resolved: about 20,000 plants and 1,000 critters on the default 3000 by 3000 world. Plants alone must run at 5,000 ticks per second or more at Max; they run at about 11,000 in the browser and 40,000 headless.
+19. ~~Target world size and population~~ Resolved: about 1,000 critters on the default world. Plants alone must run at 5,000 ticks per second or more at Max. On the earlier 3000 by 3000 default, about 20,000 plants ran at about 11,000 in the browser and 40,000 headless. On the 5000 by 5000 default, about 56,000 plants at the same density run at about 4,200 in the browser and 21,000 headless, short of that budget. Closing the gap is left to the Phase 11 performance pass.
 20. Eating automatic (Proposed) or a brain output?
 21. Corpse decay (Proposed): yes or no?
 

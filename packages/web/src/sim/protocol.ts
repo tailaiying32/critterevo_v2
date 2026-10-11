@@ -1,4 +1,4 @@
-import type { Snapshot, StatsRows, TerrainData, WorldConfig } from "@critter-evo/core";
+import type { ControllerKind, CritterInfo, CritterTraits, Snapshot, StatsRows, TerrainData, WorldConfig } from "@critter-evo/core";
 
 /** Simulation speed: a target ticks per second, or as fast as the worker can go. */
 export type Speed = number | "max";
@@ -19,7 +19,19 @@ export type ToWorker =
   | { type: "setSpeed"; speed: Speed }
   /** Changes live knobs in the running world. Other knobs are ignored. */
   | { type: "updateConfig"; changes: Partial<WorldConfig> }
-  | { type: "brush"; brush: Brush };
+  | { type: "brush"; brush: Brush }
+  /** Selects the critter nearest a point, within tolerance of its edge, or clears the selection if there is none. */
+  | { type: "pick"; x: number; y: number; tolerance: number }
+  | { type: "deselect" }
+  /** Spawn tool: adds a critter if its body fits there, and selects it. */
+  | { type: "spawn"; x: number; y: number; traits: CritterTraits; controller: ControllerKind }
+  | { type: "setController"; id: number; controller: ControllerKind }
+  | { type: "removeCritter"; id: number }
+  /**
+   * Keyboard controller: the keys held, as turn −1 to 1 and thrust 0 to 1. Any
+   * input puts the selected critter under keyboard control.
+   */
+  | { type: "drive"; turn: number; thrust: number };
 
 /** Messages the worker sends back. The main thread never mutates sim state. */
 export type FromWorker =
@@ -39,8 +51,10 @@ export type FromWorker =
     }
   | {
       type: "frame";
-      /** Its plant buffers are transferred, not copied. */
+      /** Its plant and critter buffers are transferred, not copied. */
       snapshot: Snapshot;
+      /** The selected critter, or null if none is selected. */
+      selected: CritterInfo | null;
       running: boolean;
       /** Ticks actually simulated per wall-clock second, measured in the worker. */
       measuredTps: number;

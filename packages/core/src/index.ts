@@ -22,6 +22,29 @@ export {
   type KnobSpec,
   type NumberKnobSpec,
 } from "./knobs.js";
+export {
+  accelerationOf,
+  bodyFits,
+  CONTROLLER_NAMES,
+  ControllerKind,
+  Critters,
+  IdleController,
+  KeyboardController,
+  massOf,
+  RADIUS_PER_SIZE,
+  radiusOf,
+  slopeFactor,
+  terrainEffect,
+  wadingFactor,
+  WanderController,
+  type ControlContext,
+  type Controller,
+  type CritterInfo,
+  type CritterSnapshot,
+  type CritterTraits,
+  type Outputs,
+  type TerrainEffect,
+} from "./critters/index.js";
 export { PLANT_UPDATE_STRIDE, PRODUCTIVITY_KNOBS, Plants, REFERENCE_PRODUCTIVITY, type PlantSnapshot, type PlantStats } from "./plants/index.js";
 export { Rng, type RngState } from "./rng.js";
 export { Simulation, STATS_INTERVAL, type Snapshot } from "./simulation.js";
@@ -37,6 +60,7 @@ export {
   classifyTerrain,
   countSpecks,
   createFractalNoise,
+  depthShare,
   distanceToWater,
   distanceToWaterAt,
   elevationAt,
@@ -46,6 +70,7 @@ export {
   isWater,
   seaLevelTemperatureAt,
   rainfallAt,
+  slopeField,
   SPECK_AREA,
   TERRAIN_TYPE_NAMES,
   temperatureAt,

@@ -420,6 +420,8 @@ function drawn(picture: string[], cellSize = 10): TerrainData {
     distanceToWater: new Float32Array(n),
     rainfall: new Float32Array(n),
     biome: new Uint8Array(n),
+    slopeX: new Float32Array(n),
+    slopeY: new Float32Array(n),
   };
   const size = { cols, rows, cellSize, width: cols * cellSize, height: rows * cellSize };
   return { ...size, levels, landformSize: 100, peakHeight: 1000, lowlandFlatness: 0, terrainType, ...flat };

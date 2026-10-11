@@ -1,8 +1,10 @@
-import type { Snapshot, StatsRows, TerrainData, WorldConfig } from "@critter-evo/core";
+import type { ControllerKind, CritterInfo, CritterTraits, Snapshot, StatsRows, TerrainData, WorldConfig } from "@critter-evo/core";
 import type { Brush, FromWorker, Speed, ToWorker } from "./protocol";
 
 export interface SimStatus {
   snapshot: Snapshot | null;
+  /** The selected critter as of the latest frame, or null. */
+  selected: CritterInfo | null;
   running: boolean;
   measuredTps: number;
   stateHash: string;
@@ -68,6 +70,7 @@ export class SimClient {
   private readonly worker: Worker;
   private status: SimStatus = {
     snapshot: null,
+    selected: null,
     running: false,
     measuredTps: 0,
     stateHash: "",
@@ -93,6 +96,7 @@ export class SimClient {
             generationMs: msg.generationMs,
             worldId: this.status.worldId + 1,
             generating: false,
+            selected: null,
           });
           break;
         case "config":
@@ -102,6 +106,7 @@ export class SimClient {
           if (msg.stats) this.stats.apply(msg.stats);
           this.update({
             snapshot: msg.snapshot,
+            selected: msg.selected,
             running: msg.running,
             measuredTps: msg.measuredTps,
             stateHash: msg.stateHash,
@@ -141,6 +146,26 @@ export class SimClient {
   }
   brush(brush: Brush): void {
     this.send({ type: "brush", brush });
+  }
+  /** Selects the critter nearest a world point, within tolerance of its edge, or clears the selection. */
+  pick(x: number, y: number, tolerance: number): void {
+    this.send({ type: "pick", x, y, tolerance });
+  }
+  deselect(): void {
+    this.send({ type: "deselect" });
+  }
+  spawn(x: number, y: number, traits: CritterTraits, controller: ControllerKind): void {
+    this.send({ type: "spawn", x, y, traits, controller });
+  }
+  setController(id: number, controller: ControllerKind): void {
+    this.send({ type: "setController", id, controller });
+  }
+  removeCritter(id: number): void {
+    this.send({ type: "removeCritter", id });
+  }
+  /** Sets the keyboard controller's outputs from the keys held. */
+  drive(turn: number, thrust: number): void {
+    this.send({ type: "drive", turn, thrust });
   }
 
   dispose(): void {
