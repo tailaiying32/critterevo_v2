@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // No DOM and no Node types: the type checker enforces that core runs anywhere.
+    "lib": ["ES2022"],
+    "types": []
+  },
+  "include": ["src"]
+}
