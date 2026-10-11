@@ -1,4 +1,4 @@
-import type { Snapshot, WorldConfig } from "@critter-evo/core";
+import type { Snapshot, TerrainData, WorldConfig } from "@critter-evo/core";
 import type { FromWorker, Speed, ToWorker } from "./protocol";
 
 export interface SimStatus {
@@ -8,8 +8,14 @@ export interface SimStatus {
   stateHash: string;
   /** Config of the world currently running, as clamped by the sim. */
   activeConfig: WorldConfig | null;
+  /** Static terrain of the current world. */
+  terrain: TerrainData | null;
+  /** Wall-clock time the worker spent generating the current world. */
+  generationMs: number;
   /** Increments each time a new world is generated. */
   worldId: number;
+  /** True from asking for a new world until it arrives. */
+  generating: boolean;
 }
 
 /**
@@ -25,7 +31,10 @@ export class SimClient {
     measuredTps: 0,
     stateHash: "",
     activeConfig: null,
+    terrain: null,
+    generationMs: 0,
     worldId: 0,
+    generating: false,
   };
   private readonly listeners = new Set<() => void>();
 
@@ -35,7 +44,13 @@ export class SimClient {
       const msg = event.data;
       switch (msg.type) {
         case "world":
-          this.update({ activeConfig: msg.config, worldId: this.status.worldId + 1 });
+          this.update({
+            activeConfig: msg.config,
+            terrain: msg.terrain,
+            generationMs: msg.generationMs,
+            worldId: this.status.worldId + 1,
+            generating: false,
+          });
           break;
         case "frame":
           this.update({
@@ -57,6 +72,7 @@ export class SimClient {
   getStatus = (): SimStatus => this.status;
 
   init(config: WorldConfig): void {
+    this.update({ generating: true });
     this.send({ type: "init", config });
   }
   play(): void {

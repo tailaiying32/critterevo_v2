@@ -39,6 +39,30 @@ export class Rng {
     for (let i = 0; i < 12; i++) this.nextUint32();
   }
 
+  /**
+   * Creates an independent stream for one system, derived from the world seed
+   * and a label such as "terrain.elevation". Each system draws from its own
+   * stream, so adding or changing one system never shifts another's randomness.
+   */
+  static derive(seed: number, label: string): Rng {
+    let hash = 0x811c9dc5;
+    const mix = (byte: number) => {
+      hash ^= byte & 0xff;
+      hash = Math.imul(hash, 0x01000193);
+    };
+    let s = seed >>> 0;
+    for (let i = 0; i < 4; i++) {
+      mix(s);
+      s >>>= 8;
+    }
+    for (let i = 0; i < label.length; i++) {
+      const code = label.charCodeAt(i);
+      mix(code);
+      mix(code >>> 8);
+    }
+    return new Rng(hash >>> 0);
+  }
+
   /** Restores a generator from a saved state, for save/load. */
   static fromState(state: RngState): Rng {
     const rng = new Rng(0);

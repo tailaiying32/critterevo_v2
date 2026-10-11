@@ -9,6 +9,9 @@ export const DEFAULT_CONFIG: Readonly<WorldConfig> = Object.freeze(
   Object.fromEntries(knobEntries().map(([key, spec]) => [key, spec.default])) as WorldConfig,
 );
 
+/** Upper bound on terrain cells, so very large worlds can't exhaust memory. */
+export const MAX_TERRAIN_CELLS = 4_000_000;
+
 /** Builds a full, valid config from defaults plus overrides. Out-of-range values are clamped. */
 export function makeConfig(overrides: Partial<WorldConfig> = {}): WorldConfig {
   const config = { ...DEFAULT_CONFIG } as MutableConfig;
@@ -16,7 +19,17 @@ export function makeConfig(overrides: Partial<WorldConfig> = {}): WorldConfig {
     const value = overrides[key];
     if (value !== undefined) config[key] = normalizeKnobValue(spec, value);
   }
-  return config as WorldConfig;
+  return applyConstraints(config as WorldConfig);
+}
+
+/**
+ * Rules that involve more than one knob. Applied after each knob is clamped.
+ * - Cell size is raised if the world would otherwise exceed MAX_TERRAIN_CELLS.
+ */
+function applyConstraints(config: WorldConfig): WorldConfig {
+  const minCellSize = Math.ceil(Math.sqrt((config.width * config.height) / MAX_TERRAIN_CELLS));
+  if (config.cellSize < minCellSize) config.cellSize = minCellSize;
+  return config;
 }
 
 export const CONFIG_FORMAT = "critter-evo-config";
@@ -66,7 +79,11 @@ export function parseConfig(input: unknown): ParsedConfig {
     config[key] = normalized;
   }
 
-  return { config: config as WorldConfig, warnings };
+  const constrained = applyConstraints({ ...(config as WorldConfig) });
+  if (constrained.cellSize !== config["cellSize"]) {
+    warnings.push(`"Terrain resolution" was raised to ${constrained.cellSize} to keep the terrain under ${MAX_TERRAIN_CELLS.toLocaleString("en-US")} samples.`);
+  }
+  return { config: constrained, warnings };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

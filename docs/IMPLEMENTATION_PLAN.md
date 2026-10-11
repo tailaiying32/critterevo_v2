@@ -97,38 +97,69 @@ Phases 0 through 7 build the world and the body. Evolution starts in phase 8. Ex
 
 ## Phase 2 — Terrain and climate
 
-**Decide first**
+**Decided**
 
-- Noise source: a seeded noise library such as `simplex-noise`, or a port of v1's OpenSimplex2S. Either way it must take its randomness from the seeded `Rng`.
+- Noise from the `simplex-noise` library, seeded from the world's random streams.
+- Continuous terrain field: samples every 5 units, blended smoothly, classified at any point. Drawn by a GPU shader, smooth at any zoom.
+- Default world 2000 by 2000 units (400 by 400 samples), 15% sea plus lakes and rivers, landform size 800.
+- Water, shallow water, mountain, and moisture thresholds by coverage. Temperature thresholds in absolute °F.
+- Mountains get biomes from the same lookup as land.
+- Edge falloff as a knob, off by default.
+- Hillshading.
+- Terrain shaping: gentle fractal noise, flattened lowlands, then simulated rain erosion. Ridged noise, elevation-dependent roughness, gradient damping, and domain warping were tried and dropped.
+- Lakes in basins protected from erosion. Rivers from drainage flow, as smooth capsules that widen downstream, ending in lakes, the sea, or off the map edge. Streams are shallow; wide rivers are deep and impassable.
+- A dedicated Settings page for every knob. The world page sidebar keeps only featured knobs.
 
 **Build** (DESIGN.md §4)
 
-- Terrain grid with cell size as a knob.
-- Elevation from multi-octave noise. Octaves, scale, and persistence are knobs.
-- Terrain types from elevation thresholds: deep water, shallow water, land, mountain.
-- Temperature: latitude gradient plus noise minus a lapse rate times elevation.
-- Moisture: noise, raised near water.
-- Biome lookup on temperature and moisture, with a table of per-biome parameters. Plant parameters stay unused until phase 3.
-- Terrain baked to a texture once per world and drawn under everything.
+1. Per-system random streams: `Rng.derive(seed, label)`.
+2. Terrain and Climate knob groups in the registry. A cell-count cap keeps very large worlds from exhausting memory by raising cell size.
+3. `generateTerrain(config)` in `core`: fractal elevation, edge falloff, coverage thresholds, chamfer distance to water, moisture, temperature, biomes.
+4. Terrain held by `Simulation`, folded into the state hash, with continuous point lookups (`terrainTypeAt`, `biomeAt`, `temperatureAt`, and others) for later phases.
+5. Terrain sent to the main thread once per world as transferable typed arrays.
+6. Renderer: a GPU shader that blends and classifies the field per pixel, with hillshading.
+8. Settings page with search, per-group reset, import, export. Featured knobs in the sidebar.
+9. Hydraulic erosion, priority-flood drainage, lakes, signed water depth, flow accumulation, river tracing and smoothing, river point queries, river rendering, and a "generating" indicator.
+7. CLI prints a terrain summary: grid size, generation time, terrain type shares, biome shares, temperature range.
 
 **Debug tools**
 
-- Overlay modes: biome (default), elevation, temperature, moisture, terrain type.
-- Hover readout: cell elevation, temperature, moisture, terrain type, biome.
-- Biome legend.
+- View selector: biome (default), elevation, temperature, moisture, terrain type.
+- Relief shading toggle.
+- Legend for the current view.
+- Hover readout: cell coordinates, terrain type, biome, elevation, temperature, moisture, distance to water.
 
 **Automated tests**
 
-- Same seed gives the same grid. Different seeds give different grids.
-- Temperature decreases toward the top and bottom edges and with elevation.
-- Every land cell gets a biome.
+- Same seed gives identical grids. Different seeds give different grids.
+- Water, shallow water, and mountain shares match their coverage knobs.
+- Temperature rises toward the middle row and falls with elevation.
+- Moisture is higher near water when the boost is on.
+- Every non-water cell has a biome. Water cells have none.
+- Full edge falloff turns every border cell into water.
+- Random streams with different labels are independent.
 
 **Manual test checklist**
 
 - [ ] Several seeds produce believable landscapes: continents, lakes, ranges.
-- [ ] The temperature overlay shows a clear latitude gradient, and mountains read as cold.
+- [ ] The temperature view shows a clear latitude gradient, and mountains read as cold.
 - [ ] Biomes form sensible bands: tundra near the edges, rainforest and desert near the middle.
+- [ ] Mountains show alpine biomes such as tundra or taiga where cold.
 - [ ] Each terrain and climate knob visibly changes the world in the expected direction.
+- [ ] Coverage knobs hold across seeds: 35% water looks like roughly a third of the map every time.
+- [ ] Edge falloff at 1 produces an island surrounded by ocean.
+- [ ] Changing terrain resolution changes detail but not the overall shape of the world.
+- [ ] Zooming all the way in shows smooth coastlines and biome borders, no squares.
+- [ ] Hills and mountains look eroded, with gullies running down them, not covered in bumps. Rain erosion at 0 shows the un-eroded terrain for comparison.
+- [ ] Rivers start in highlands, merge, widen downstream, and end in lakes, the sea, or at the map edge.
+- [ ] Hovering over a river reports its width, and wide rivers read as deep water.
+- [ ] Lakes sit in basins at different heights, including some in the highlands.
+- [ ] River source area, river width, and lake depth threshold visibly change the water network.
+- [ ] Dry biomes show greener strips along rivers.
+- [ ] The hover readout agrees with what is drawn under the cursor, including right at coastlines.
+- [ ] The Settings page lists every knob, search filters them, and Generate returns to the world.
+- [ ] Hillshading makes mountain ranges easy to read, and can be turned off.
+- [ ] The CLI terrain summary matches what the browser shows for the same seed.
 
 **Done when**: you're happy with how worlds look across a range of seeds.
 

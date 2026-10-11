@@ -5,10 +5,12 @@ interface KnobInputProps {
   spec: KnobSpec;
   value: number | boolean;
   onChange: (value: number | boolean) => void;
+  /** Hide the description line; it stays available as a tooltip. */
+  compact?: boolean;
 }
 
 /** One generated control for a knob, chosen from the knob's spec. */
-export function KnobInput({ spec, value, onChange }: KnobInputProps) {
+export function KnobInput({ spec, value, onChange, compact = false }: KnobInputProps) {
   const isDefault = value === spec.default;
 
   return (
@@ -26,7 +28,7 @@ export function KnobInput({ spec, value, onChange }: KnobInputProps) {
       ) : (
         <NumberControl spec={spec} value={Number(value)} onChange={onChange} />
       )}
-      <p className="knob-description">{spec.description}</p>
+      {!compact && <p className="knob-description">{spec.description}</p>}
     </div>
   );
 }

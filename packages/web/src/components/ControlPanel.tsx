@@ -63,6 +63,10 @@ export function StatusPanel({ client }: { client: SimClient }) {
         <dd>{snapshot?.tick.toLocaleString() ?? "–"}</dd>
         <dt>Sim time</dt>
         <dd>{snapshot ? `${snapshot.time.toFixed(1)} s` : "–"}</dd>
+        <dt>Generation time</dt>
+        <dd>{status.generating ? "generating…" : status.terrain ? `${Math.round(status.generationMs)} ms` : "–"}</dd>
+        <dt>Terrain grid</dt>
+        <dd>{status.terrain ? `${status.terrain.cols} × ${status.terrain.rows}` : "–"}</dd>
         <dt>Measured speed</dt>
         <dd>{`${Math.round(status.measuredTps).toLocaleString()} tick/s`}</dd>
         <dt title="Fingerprint of the full world state. Same seed and settings give the same hash at the same tick.">

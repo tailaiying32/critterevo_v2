@@ -1,23 +1,48 @@
+import {
+  biomeAt,
+  BIOME_NAMES,
+  elevationAt,
+  isWater,
+  moistureAt,
+  riverWidthAtPoint,
+  temperatureAt,
+  TERRAIN_TYPE_NAMES,
+  terrainTypeAt,
+  waterDepthAt,
+  waterDistanceAt,
+  waterLevelAt,
+  type TerrainData,
+} from "@critter-evo/core";
 import { Application, Container, Graphics } from "pixi.js";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Camera } from "../render/Camera";
+import type { TerrainView } from "../render/terrainColors";
+import { TerrainLayer } from "../render/TerrainLayer";
 import type { SimClient } from "../sim/SimClient";
+import { TerrainLegend, ViewControls } from "./TerrainLegend";
 
 const BACKGROUND = 0x0e1013;
-const WORLD_FILL = 0x1d2a1f;
-const WORLD_BORDER = 0x5a6b5c;
+const WORLD_BORDER = 0x9aa5a0;
 /** Zoom change per pixel of wheel scroll. */
 const WHEEL_ZOOM_SPEED = 0.0015;
 
 /**
  * PixiJS view of the world with pan (drag) and zoom (scroll wheel, toward the cursor).
- * Owns its own render loop and reads the latest snapshot straight from the SimClient,
+ * Owns its own render loop and reads the latest state straight from the SimClient,
  * so React never re-renders per frame.
  */
 export function WorldCanvas({ client }: { client: SimClient }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const readoutRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<() => void>(() => {});
+
+  const [view, setView] = useState<TerrainView>("biome");
+  const [relief, setRelief] = useState(true);
+  // The Pixi loop reads view settings through a ref, so changing them doesn't restart Pixi.
+  const viewRef = useRef({ view, relief });
+  useEffect(() => {
+    viewRef.current = { view, relief };
+  }, [view, relief]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -29,7 +54,8 @@ export function WorldCanvas({ client }: { client: SimClient }) {
     let cancelled = false;
     let removeListeners = () => {};
 
-    void app.init({ resizeTo: host, background: BACKGROUND, antialias: true }).then(() => {
+    // The terrain shader is GLSL (WebGL 2), so ask Pixi for the WebGL renderer.
+    void app.init({ resizeTo: host, background: BACKGROUND, antialias: true, preference: "webgl" }).then(() => {
       initialized = true;
       // React StrictMode mounts effects twice in development. Clean up a stale init.
       if (cancelled) {
@@ -39,13 +65,22 @@ export function WorldCanvas({ client }: { client: SimClient }) {
       const canvas = app.canvas;
       host.appendChild(canvas);
 
+      // --- Scene, all in world units: the terrain layer and the world border ---
       const worldLayer = new Container();
-      const worldRect = new Graphics();
-      worldLayer.addChild(worldRect);
+      const terrainContainer = new Container();
+      const border = new Graphics();
+      worldLayer.addChild(terrainContainer, border);
       app.stage.addChild(worldLayer);
+
+      let terrainLayer: TerrainLayer | null = null;
+      let terrainWorldId = -1;
+      let appliedView = "";
 
       let fittedWorldId = -1;
       let hover: { x: number; y: number } | null = null;
+      // While true, the view refits whenever the canvas is resized. Cleared when the user pans or zooms.
+      let autoFit = true;
+      let lastViewport = "";
 
       // Fit uses the active config, not the snapshot: the "world" message arrives
       // before the new world's first frame, so the snapshot can still be the old world.
@@ -54,22 +89,24 @@ export function WorldCanvas({ client }: { client: SimClient }) {
         if (!config) return;
         camera.setViewport(app.screen.width, app.screen.height);
         camera.fit(config.width, config.height);
+        autoFit = true;
       };
       fitRef.current = fit;
 
       const updateReadout = () => {
         const readout = readoutRef.current;
-        const snapshot = client.getStatus().snapshot;
         if (!readout) return;
-        if (!hover || !snapshot) {
+        const { activeConfig: config, terrain } = client.getStatus();
+        if (!hover || !config || !terrain) {
           readout.textContent = "";
           return;
         }
         const world = camera.screenToWorld(hover.x, hover.y);
-        const inside = world.x >= 0 && world.y >= 0 && world.x <= snapshot.width && world.y <= snapshot.height;
-        readout.textContent = inside
-          ? `x ${world.x.toFixed(1)}   y ${world.y.toFixed(1)}`
-          : "outside world";
+        if (world.x < 0 || world.y < 0 || world.x >= config.width || world.y >= config.height) {
+          readout.textContent = "outside world";
+          return;
+        }
+        readout.textContent = describeCell(terrain, world.x, world.y);
       };
 
       // --- Input: drag to pan, wheel to zoom, F to fit ---
@@ -90,6 +127,7 @@ export function WorldCanvas({ client }: { client: SimClient }) {
         const p = localPoint(e);
         hover = p;
         if (drag && drag.id === e.pointerId) {
+          if (p.x !== drag.x || p.y !== drag.y) autoFit = false;
           camera.panBy(p.x - drag.x, p.y - drag.y);
           drag = { id: drag.id, ...p };
         }
@@ -109,6 +147,7 @@ export function WorldCanvas({ client }: { client: SimClient }) {
         e.preventDefault();
         const p = localPoint(e);
         camera.zoomAt(p.x, p.y, Math.exp(-e.deltaY * WHEEL_ZOOM_SPEED));
+        autoFit = false;
         updateReadout();
       };
       const onKeyDown = (e: KeyboardEvent) => {
@@ -137,15 +176,19 @@ export function WorldCanvas({ client }: { client: SimClient }) {
 
       // --- Render loop ---
       app.ticker.add(() => {
-        const { snapshot, worldId } = client.getStatus();
-        if (!snapshot) return;
+        const { activeConfig: config, terrain, worldId } = client.getStatus();
+        if (!config || !terrain) return;
+        // Skip frames while the canvas is hidden or collapsed, so fitting never uses a bogus size.
+        if (app.screen.width < 2 || app.screen.height < 2) return;
 
         camera.setViewport(app.screen.width, app.screen.height);
-        if (worldId !== fittedWorldId) {
+        const viewport = `${app.screen.width}x${app.screen.height}`;
+        if (worldId !== fittedWorldId || (autoFit && viewport !== lastViewport)) {
           fit();
           fittedWorldId = worldId;
         }
-        camera.clampTo(snapshot.width, snapshot.height);
+        lastViewport = viewport;
+        camera.clampTo(config.width, config.height);
 
         worldLayer.scale.set(camera.zoom);
         worldLayer.position.set(
@@ -153,12 +196,22 @@ export function WorldCanvas({ client }: { client: SimClient }) {
           app.screen.height / 2 - camera.y * camera.zoom,
         );
 
+        if (worldId !== terrainWorldId) {
+          terrainLayer?.destroy();
+          terrainLayer = new TerrainLayer(terrain);
+          terrainContainer.addChild(terrainLayer.container);
+          terrainWorldId = worldId;
+          appliedView = "";
+          updateReadout();
+        }
+        const { view, relief } = viewRef.current;
+        const viewKey = `${view}|${relief}`;
+        if (terrainLayer && viewKey !== appliedView) {
+          terrainLayer.setView(view, relief);
+          appliedView = viewKey;
+        }
         // Border width is in screen pixels, so it stays crisp at any zoom.
-        worldRect
-          .clear()
-          .rect(0, 0, snapshot.width, snapshot.height)
-          .fill(WORLD_FILL)
-          .stroke({ width: 2 / camera.zoom, color: WORLD_BORDER });
+        border.clear().rect(0, 0, config.width, config.height).stroke({ width: 1.5 / camera.zoom, color: WORLD_BORDER });
       });
     });
 
@@ -177,8 +230,39 @@ export function WorldCanvas({ client }: { client: SimClient }) {
         <button onClick={() => fitRef.current()} title="Fit world to view (F)">
           Fit world
         </button>
+        <ViewControls view={view} relief={relief} onViewChange={setView} onReliefChange={setRelief} />
       </div>
       <div ref={readoutRef} className="canvas-readout" />
+      <TerrainLegend client={client} view={view} />
+      <GeneratingOverlay client={client} />
     </div>
   );
+}
+
+function GeneratingOverlay({ client }: { client: SimClient }) {
+  const { generating } = useSyncExternalStore(client.subscribe, client.getStatus);
+  return generating ? <div className="generating">Generating world…</div> : null;
+}
+
+function describeCell(terrain: TerrainData, x: number, y: number): string {
+  const type = terrainTypeAt(terrain, x, y);
+  let what: string;
+  if (!isWater(type)) {
+    what = `${TERRAIN_TYPE_NAMES[type]}  ·  ${BIOME_NAMES[biomeAt(terrain, x, y)]}`;
+  } else if (waterLevelAt(terrain, x, y) > 0) {
+    const body = elevationAt(terrain, x, y) < terrain.levels.sea ? "sea" : "lake";
+    what = `${TERRAIN_TYPE_NAMES[type]}  ·  ${body}  ·  depth ${waterDepthAt(terrain, x, y).toFixed(2)}`;
+  } else {
+    what = `${TERRAIN_TYPE_NAMES[type]}  ·  river ${riverWidthAtPoint(terrain, x, y).toFixed(1)} u wide`;
+  }
+  const lines = [
+    `x ${x.toFixed(1)}  y ${y.toFixed(1)}`,
+    what,
+    `${temperatureAt(terrain, x, y).toFixed(1)}°F   elevation ${elevationAt(terrain, x, y).toFixed(3)}   moisture ${moistureAt(terrain, x, y).toFixed(2)}`,
+  ];
+  if (!isWater(type)) {
+    const d = waterDistanceAt(terrain, x, y);
+    lines.push(Number.isFinite(d) ? `water ${d.toFixed(0)} u away` : "no water in this world");
+  }
+  return lines.join("\n");
 }

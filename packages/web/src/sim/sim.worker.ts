@@ -4,12 +4,12 @@
  * advances in whole ticks of identical size, and the speed setting only
  * changes how many ticks run per wall-clock second.
  */
-import { Simulation } from "@critter-evo/core";
+import { Simulation, type TerrainData } from "@critter-evo/core";
 import type { FromWorker, Speed, ToWorker } from "./protocol";
 
 // The project's tsconfig uses DOM types, so describe the worker scope we use.
 const ctx = self as unknown as {
-  postMessage(message: FromWorker): void;
+  postMessage(message: FromWorker, transfer?: Transferable[]): void;
   onmessage: ((event: MessageEvent<ToWorker>) => void) | null;
 };
 
@@ -37,13 +37,18 @@ let hashStale = true;
 ctx.onmessage = (event) => {
   const msg = event.data;
   switch (msg.type) {
-    case "init":
+    case "init": {
+      const start = performance.now();
       sim = new Simulation(msg.config);
+      const generationMs = performance.now() - start;
       accumulator = 0;
       hashStale = true;
       dirty = true;
-      ctx.postMessage({ type: "world", config: sim.config });
+      // The sim keeps its own terrain, so send copies and transfer their buffers.
+      const terrain = copyTerrain(sim.terrain);
+      ctx.postMessage({ type: "world", config: sim.config, terrain, generationMs }, terrainBuffers(terrain));
       break;
+    }
     case "play":
       running = true;
       lastFrame = performance.now();
@@ -67,6 +72,27 @@ ctx.onmessage = (event) => {
       break;
   }
 };
+
+function copyTerrain(t: TerrainData): TerrainData {
+  return {
+    ...t,
+    levels: { ...t.levels },
+    elevation: t.elevation.slice(),
+    water: t.water.slice(),
+    temperature: t.temperature.slice(),
+    moisture: t.moisture.slice(),
+    waterDistance: t.waterDistance.slice(),
+    rivers: t.rivers.slice(),
+    terrainType: t.terrainType.slice(),
+    biome: t.biome.slice(),
+  };
+}
+
+function terrainBuffers(t: TerrainData): Transferable[] {
+  return [t.elevation, t.water, t.temperature, t.moisture, t.waterDistance, t.rivers, t.terrainType, t.biome].map(
+    (array) => array.buffer as ArrayBuffer,
+  );
+}
 
 function frame(): void {
   const now = performance.now();

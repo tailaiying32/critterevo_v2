@@ -3,6 +3,7 @@ export {
   CONFIG_VERSION,
   DEFAULT_CONFIG,
   makeConfig,
+  MAX_TERRAIN_CELLS,
   parseConfig,
   serializeConfig,
   type ParsedConfig,
@@ -22,3 +23,28 @@ export {
 } from "./knobs.js";
 export { Rng, type RngState } from "./rng.js";
 export { Simulation, type Snapshot } from "./simulation.js";
+export {
+  Biome,
+  BIOME_NAMES,
+  BIOME_TABLE,
+  biomeAt,
+  classifyBiome,
+  classifyTerrain,
+  elevationAt,
+  generateTerrain,
+  heightAboveSeaAt,
+  isWater,
+  moistureAt,
+  RIVER_STRIDE,
+  riverWidthAtPoint,
+  sampleField,
+  temperatureAt,
+  TERRAIN_TYPE_NAMES,
+  TerrainType,
+  terrainTypeAt,
+  waterDepthAt,
+  waterDistanceAt,
+  waterLevelAt,
+  type TerrainData,
+  type TerrainLevels,
+} from "./terrain/index.js";

@@ -29,7 +29,21 @@ Design principles:
 | Timestep | Fixed timestep, decoupled from render rate | Decided |
 | Space | Continuous 2D | Decided |
 | World edges | Walls on all four sides | Decided |
-| Terrain | Coarse grid under continuous space: elevation, temperature, moisture | Decided |
+| Terrain | Continuous field: samples every 5 units, blended smoothly between samples | Decided |
+| World size | 2000 by 2000 units by default | Decided |
+| Noise | `simplex-noise` library, seeded from the world's random streams | Decided |
+| Terrain thresholds | By coverage (percentiles) for water, shallow water, mountains, and moisture | Decided |
+| Temperature units | °F | Decided |
+| Mountain biomes | Mountains get biomes from the same lookup as land | Decided |
+| Edge falloff | Knob, off by default | Decided |
+| Terrain rendering | GPU shader drawing the continuous field, smooth at any zoom, with hillshading | Decided |
+| Terrain shaping | Gentle fractal noise, flattened lowlands, then simulated rain erosion. No ridged noise | Decided |
+| Rivers | Traced from drainage flow over the eroded terrain; smooth capsule segments; width grows downstream | Decided |
+| Lakes | Basins found before erosion are protected, then filled to their spill level | Decided |
+| River endings | Into lakes or the sea, or off the edge of the map | Decided |
+| River crossing | Streams are shallow water (drinkable, wadeable); wide rivers are deep water (impassable) | Decided |
+| Water coverage | Knob sets the sea share (default 15%); lakes and rivers add roughly 5 to 15% | Decided |
+| Settings UI | Featured knobs beside the world; every knob on a dedicated, searchable Settings page | Decided |
 | Biomes | Temperature × moisture lookup (Whittaker-style) | Decided |
 | Food | Regrowing plant entities, growth set by biome | Decided |
 | Corpses | Dead critters become meat | Decided |
@@ -95,9 +109,10 @@ critter-evo/
 
 ### 3.3 Determinism
 
-- One seeded PRNG inside `core`. No `Math.random` anywhere in `core`, enforced by a lint rule.
+- All randomness in `core` comes from seeded PRNGs. No `Math.random`, enforced by a lint rule.
+- Each system draws from its own stream, derived from the world seed and a label such as `terrain`. Adding a system never changes what an existing system does for a given seed.
 - Fixed tick size. All entity iteration in stable ID order.
-- Known caveat: JavaScript does not guarantee identical results for `Math.sin`, `Math.exp`, and similar across engines. Same machine and browser replays will match exactly. Cross-engine replays may drift. Acceptable for now.
+- Known caveat: JavaScript does not guarantee identical results for `Math.sin`, `Math.exp`, `Math.pow`, and similar across engines. Same machine and browser replays will match exactly. Where cheap, `core` avoids these functions (terrain generation does), so cross-engine replays match too.
 
 ### 3.4 Spatial indexing
 
@@ -122,38 +137,50 @@ World state (config, seed, tick, all entities, innovation table, PRNG state) ser
 - Walls on all four edges. Entities that hit a wall stop at it.
 - Fixed tick duration `dt`.
 
-### 4.2 Terrain grid
+### 4.2 Terrain field
 
-A coarse grid sits underneath the continuous space. Each cell stores:
+Terrain is a continuous field, like the space critters move in. It is stored as samples on a grid, 5 world units apart by default (a knob). Values between samples are blended bilinearly from the four nearest samples, and terrain type and biome at any point come from classifying the blended values against thresholds stored with the terrain. Coastlines and biome borders are therefore smooth curves at any scale, not cell edges. Rivers are stored separately as smooth line segments with a width.
 
-| Field | Source |
-|---|---|
-| Elevation | Multi-octave OpenSimplex noise, as in v1 |
-| Temperature | Latitude gradient (cold at top and bottom edges, warm at the middle) plus noise, minus a lapse rate times elevation |
-| Moisture | Noise, raised near water |
-| Terrain type | Derived from elevation: deep water, shallow water, land, mountain |
-| Biome | Derived from temperature and moisture (land cells only) |
+Point lookups such as `terrainTypeAt(x, y)` and `temperatureAt(x, y)` are what every later system uses. The renderer draws the field with a GPU shader that does the same blending and classification for every screen pixel, and draws rivers as the same capsules the lookups test, so the screen shows exactly what the simulation uses.
 
-Entities sample the cell under them, or ahead of them, by converting continuous position to cell coordinates.
+Terrain is generated once per world by a pure function of the config and seed. Generation uses only arithmetic, `Math.floor`, and `Math.sqrt`, which every JavaScript engine computes identically, so a seed produces the same map in every browser. The terrain is folded into the state hash. The default world takes about 1.5 to 2 seconds to generate, almost all of it erosion, in the background worker.
+
+Each sample stores:
+
+| Field | Range | Source |
+|---|---|---|
+| Elevation | 0 to 1 | Fractal noise, flattened lowlands, edge falloff, then erosion; normalized over the world |
+| Water | signed | Surface level of the nearest sea or lake minus elevation: positive in water, negative on land, zero at the shore |
+| Temperature | °F | Latitude curve plus noise, minus elevation cooling |
+| Moisture | 0 to 1 | Fractal noise plus a boost that fades with distance from any water, rivers included |
+| Distance to water | world units | Nearest sea, lake, or river |
+| Terrain type, biome | enum | Per-sample copies of the point lookups, for statistics |
+
+### 4.2.1 Generation pipeline (Decided)
+
+1. **Random streams.** Each step draws from its own random stream derived from the seed and a label. Adding a system never changes what an existing system produces for a given seed.
+2. **Elevation.** Gentle fractal simplex noise: few octaves that fade quickly, so the land is smooth rounded hills rather than bumps at every scale. Knobs: landform size (the approximate visible size of the largest features), octaves, persistence, lacunarity. Optional edge falloff pushes the borders into ocean.
+3. **Flat lowlands.** Land height above sea level is reshaped with `h → h + flatness × (h³ − h)`, flattening plains and steepening peaks without moving the coast.
+4. **Lake basins.** A drainage flood (step 6) on the pre-erosion terrain finds basins deep enough to hold lakes.
+5. **Rain erosion.** Simulated raindrops, a few per sample (knob), run downhill, pick up sediment on steep ground, and drop it where they slow. This carves gullies and valleys, smooths slopes, and leaves flat valley floors. Drops that reach a lake basin settle their sediment at the shore, building small deltas instead of filling the basin. One light blur afterwards removes rills a single sample wide, which would otherwise notch coastlines. Erosion works in sample units, so it adds detail at the scale of the sample spacing.
+6. **Sea, mountains, drainage.** Sea level and the mountain threshold come from coverage knobs. A priority flood (Barnes et al. 2014) from the sea and the world's edge gives every sample a downhill route to an outlet, filling pits to their spill level along the way.
+7. **Lakes.** Filled pits at least 12 samples large and at least the lake depth threshold deep become lakes, with their surface at the spill level.
+8. **Signed water depth.** Surface level of the nearest sea or lake minus elevation. The shallowest share of water (knob) is shallow; the rest is deep.
+9. **Rivers.** Flow accumulation counts how much upstream area drains through each sample. Wherever it exceeds the river source area (knob), there is a river. Each river is traced downstream until it reaches a lake, the sea, another river, or the edge of the map, where it leaves the world through the wall. Paths are simplified to remove grid stair steps, then smoothed with Chaikin corner cutting. Width grows with the square root of the drainage area (knob for scale), at least 1.5 units.
+10. **Moisture.** Fractal noise plus a boost near any water, so rivers get green corridors through dry land.
+11. **Temperature (°F).** A latitude curve `pole + (equator − pole) × (1 − lat²)`, plus a small noise field, minus elevation cooling. A polynomial curve keeps generation identical across engines.
+12. **Biomes.** Temperature bands use absolute thresholds in °F. Moisture bands use coverage of the land.
 
 ### 4.3 Terrain types
 
-| Type | Passable | Notes |
+| Type | Passable | Where |
 |---|---|---|
-| Deep water | No | Acts as a wall |
-| Shallow water | Yes, slow | Edge of water bodies. Drinkable. Slowdown depends on local conditions (open) |
+| Deep water | No | Deep parts of seas and lakes, and rivers at least the deep river width wide. Acts as a wall |
+| Shallow water | Yes, slow | Shallow parts of seas and lakes, and narrower rivers (streams). Drinkable |
 | Land | Yes | Movement cost and plant growth set by biome |
-| Mountain | Yes, slow | Cold due to elevation. Slowdown depends on local conditions (open) |
+| Mountain | Yes, slow | The highest land by coverage. Has a biome like land, from the same lookup. Terrain type affects movement only |
 
-### 4.4 Biomes
-
-Biome is a lookup on (temperature, moisture), following the Whittaker diagram. Initial set:
-
-| | Dry | Moderate | Wet |
-|---|---|---|---|
-| **Hot** | Desert | Savanna | Rainforest |
-| **Temperate** | Grassland | Temperate forest | Temperate rainforest |
-| **Cold** | Tundra | Taiga | Taiga |
+Deep rivers cut the land into regions that can only be crossed where the river is narrow or at its source. That can isolate populations, a classic route to new species.
 
 ### 4.3.1 Terrain slowdown (Proposed)
 
@@ -162,11 +189,21 @@ Biome is a lookup on (temperature, moisture), following the Whittaker diagram. I
 - **Body size**: larger critters wade deeper water more easily. Smaller critters handle steep ground more easily.
 - **Energy**: slow terrain also raises movement energy cost per unit of distance, so crossing it is a tradeoff, not just a delay.
 
-Each biome defines:
+### 4.4 Biomes
 
-- plant spawn density and regrowth rate
-- plant maximum energy
-- movement cost multiplier
+Biome is a lookup on temperature and moisture, following the Whittaker diagram. Every non-water point, mountains included, gets one. Cold peaks therefore become tundra on their own, like real alpine zones.
+
+| | Dry | Moderate | Wet |
+|---|---|---|---|
+| **Hot** | Desert | Savanna | Rainforest |
+| **Temperate** | Grassland | Temperate forest | Temperate rainforest |
+| **Cold** | Tundra | Taiga | Taiga |
+
+Each biome will define, in the phase that first uses it:
+
+- plant spawn density and regrowth rate (Phase 3)
+- plant maximum energy (Phase 3)
+- movement cost multiplier (Phase 4)
 
 Exact values are tuning parameters.
 
@@ -364,6 +401,7 @@ No insulation trait. Temperature affects critters through body geometry alone:
 
 - Heat loss scales with surface area, roughly `mass^(2/3)`.
 - Heat production scales with metabolism, roughly `mass^(3/4)`.
+- Temperatures are in °F.
 - Outside a comfort band around a neutral temperature, a critter pays `k_thermal × |ambient − neutral| × mass^(2/3)` per tick.
 
 Because the cost scales with surface area while capacity scales with mass, larger bodies cope with cold better per unit mass. Bergmann's rule should emerge without being coded. Whether heat stress penalizes large bodies symmetrically is an open question.
@@ -506,10 +544,11 @@ Conflict rules, such as two critters eating the last bite of one plant or one cr
 
 ### 14.1 Web app
 
-- **World view** (PixiJS): terrain baked to a texture once at generation; plants, corpses, and critters as sprites; pan and zoom; click to select. Optional vision-cone overlay for the selected critter, showing each wedge, with binocular and monocular zones shaded differently.
+- **World view** (PixiJS): terrain drawn by a GPU shader from the continuous field, rivers drawn as capsules; plants, corpses, and critters as sprites; pan and zoom; click to select. Optional vision-cone overlay for the selected critter, showing each wedge, with binocular and monocular zones shaded differently.
 - **Critter coloring modes**: by species, by digestion trait, by energy, by generation.
 - **Controls**: play, pause, single step, speed.
-- **World setup**: every knob, grouped by category, with seed. Generate new world.
+- **World page sidebar**: simulation controls, status, and a few featured knobs (seed, world size, landform size, water coverage) with Generate.
+- **Settings page**: every knob, grouped by category and searchable, with per-group reset, import, export, and Generate.
 - **Inspector** for the selected critter: traits, state, energy budget breakdown by cost term, live brain graph with activations, lineage.
 - **Statistics**: population over time, species count, trait histograms over time (digestion, size, eye placement angle, eye field of view, wedges per eye, vision range), sexual vs asexual birth fraction, average brain size.
 - **Save, load, and export** of world state and stats.

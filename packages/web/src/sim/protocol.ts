@@ -1,4 +1,4 @@
-import type { Snapshot, WorldConfig } from "@critter-evo/core";
+import type { Snapshot, TerrainData, WorldConfig } from "@critter-evo/core";
 
 /** Simulation speed: a target ticks per second, or as fast as the worker can go. */
 export type Speed = number | "max";
@@ -17,6 +17,10 @@ export type FromWorker =
       /** Sent once per generated world, with the config actually in use (after clamping). */
       type: "world";
       config: WorldConfig;
+      /** Static terrain, sent once per world. Its buffers are transferred, not copied. */
+      terrain: TerrainData;
+      /** Wall-clock time spent generating the world. */
+      generationMs: number;
     }
   | {
       type: "frame";

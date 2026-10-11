@@ -1,5 +1,7 @@
 import { makeConfig, type WorldConfig } from "./config.js";
 import { Rng } from "./rng.js";
+import { generateTerrain } from "./terrain/generate.js";
+import type { TerrainData } from "./terrain/types.js";
 
 /** The data the renderer needs each frame. Grows as features are added. */
 export interface Snapshot {
@@ -16,12 +18,17 @@ export interface Snapshot {
  */
 export class Simulation {
   readonly config: WorldConfig;
+  /** Static terrain grid, generated once per world (docs/DESIGN.md §4.2). */
+  readonly terrain: TerrainData;
   private readonly rng: Rng;
+  private readonly terrainHash: number;
   private tickCount = 0;
 
   constructor(config: Partial<WorldConfig> = {}) {
     this.config = makeConfig(config);
-    this.rng = new Rng(this.config.seed);
+    this.rng = Rng.derive(this.config.seed, "simulation");
+    this.terrain = generateTerrain(this.config);
+    this.terrainHash = hashTerrain(this.terrain);
   }
 
   get tick(): number {
@@ -59,19 +66,66 @@ export class Simulation {
    */
   stateHash(): string {
     const { a, b, c, d } = this.rng.getState();
-    return fnv1a([this.tickCount, a, b, c, d]);
+    return toHex(fnv1aWords([this.tickCount, a, b, c, d, this.terrainHash]));
   }
 }
 
-function fnv1a(values: readonly number[]): string {
-  let hash = 0x811c9dc5;
+const FNV_OFFSET = 0x811c9dc5;
+const FNV_PRIME = 0x01000193;
+
+function fnv1aWords(values: readonly number[], seed = FNV_OFFSET): number {
+  let hash = seed;
   for (const value of values) {
     let v = value | 0;
     for (let i = 0; i < 4; i++) {
       hash ^= v & 0xff;
-      hash = Math.imul(hash, 0x01000193);
+      hash = Math.imul(hash, FNV_PRIME);
       v >>>= 8;
     }
   }
-  return (hash >>> 0).toString(16).padStart(8, "0");
+  return hash >>> 0;
+}
+
+function fnv1aBytes(bytes: Uint8Array, seed: number): number {
+  let hash = seed;
+  for (let i = 0; i < bytes.length; i++) {
+    hash ^= bytes[i]!;
+    hash = Math.imul(hash, FNV_PRIME);
+  }
+  return hash >>> 0;
+}
+
+/** Hash of every terrain field, computed once per world. */
+function hashTerrain(terrain: TerrainData): number {
+  const levels = terrain.levels;
+  const levelBits = new Float64Array([
+    levels.sea,
+    levels.deep,
+    levels.maxDepth,
+    levels.mountain,
+    levels.dry,
+    levels.wet,
+    levels.cold,
+    levels.hot,
+    levels.deepRiverWidth,
+  ]);
+  let hash = fnv1aWords([terrain.cols, terrain.rows, terrain.cellSize, terrain.width, terrain.height]);
+  hash = fnv1aBytes(new Uint8Array(levelBits.buffer), hash);
+  for (const field of [
+    terrain.elevation,
+    terrain.water,
+    terrain.rivers,
+    terrain.temperature,
+    terrain.moisture,
+    terrain.waterDistance,
+    terrain.terrainType,
+    terrain.biome,
+  ]) {
+    hash = fnv1aBytes(new Uint8Array(field.buffer, field.byteOffset, field.byteLength), hash);
+  }
+  return hash;
+}
+
+function toHex(hash: number): string {
+  return hash.toString(16).padStart(8, "0");
 }
