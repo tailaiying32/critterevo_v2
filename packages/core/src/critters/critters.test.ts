@@ -49,7 +49,7 @@ function inland(sim: Simulation): { x: number; y: number } {
 }
 
 function critters(terrain: TerrainData, overrides: Partial<WorldConfig> = {}): Critters {
-  return new Critters(terrain, makeConfig({ width: terrain.width, height: terrain.height, ...overrides }), new Rng(1), new Rng(2));
+  return new Critters(terrain, makeConfig({ width: terrain.width, height: terrain.height, ...overrides }), new Rng(1), new Rng(2), new Rng(3));
 }
 
 /** Drives the critter in a slot straight ahead at full thrust for a number of ticks, and returns its speed. */

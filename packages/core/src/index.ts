@@ -22,26 +22,49 @@ export {
   type KnobSpec,
   type NumberKnobSpec,
 } from "./knobs.js";
+export { CORPSE_REMAINDER, Corpses, type CorpseSnapshot, type CorpseStats } from "./corpses/index.js";
 export {
   accelerationOf,
   bodyFits,
   CONTROLLER_NAMES,
   ControllerKind,
+  COST_TERM_COUNT,
+  COST_TERM_NAMES,
+  CostTerm,
+  costRates,
+  costsOf,
   Critters,
+  DEATH_CAUSE_NAMES,
+  DeathCause,
   IdleController,
   KeyboardController,
+  kleiberOf,
+  lifeScaleOf,
   massOf,
+  maxAgeOf,
+  maxEnergyOf,
+  maxWaterOf,
+  metabolicRates,
+  MIN_TERRAIN_FACTOR,
   RADIUS_PER_SIZE,
   radiusOf,
+  RUNNING_SPEED,
   slopeFactor,
+  surfaceOf,
   terrainEffect,
+  touchesWater,
   wadingFactor,
   WanderController,
+  WATER_PER_MASS,
   type ControlContext,
   type Controller,
+  type CostInputs,
+  type CostQuery,
   type CritterInfo,
   type CritterSnapshot,
   type CritterTraits,
+  type DeathRecord,
+  type MetabolicRates,
   type Outputs,
   type TerrainEffect,
 } from "./critters/index.js";
@@ -49,7 +72,7 @@ export { PLANT_UPDATE_STRIDE, PRODUCTIVITY_KNOBS, Plants, REFERENCE_PRODUCTIVITY
 export { Rng, type RngState } from "./rng.js";
 export { Simulation, STATS_INTERVAL, type Snapshot } from "./simulation.js";
 export { SPATIAL_CELL_SIZE, SpatialHash } from "./spatial.js";
-export { STATS_BIOMES, STATS_COLUMNS, StatsRecorder, type StatsRows } from "./stats.js";
+export { STATS_BIOMES, STATS_COLUMNS, STATS_COST_TERMS, STATS_DEATH_CAUSES, StatsRecorder, type StatsRows } from "./stats.js";
 export {
   Biome,
   BIOME_NAMES,

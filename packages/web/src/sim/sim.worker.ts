@@ -162,9 +162,10 @@ function newStats(sim: Simulation): StatsRows | null {
 }
 
 function frameBuffers(snapshot: Snapshot, stats: StatsRows | null): Transferable[] {
-  const { plants, critters } = snapshot;
+  const { plants, critters, corpses } = snapshot;
   const buffers: ArrayBufferLike[] = [plants.x.buffer, plants.y.buffer, plants.energy.buffer];
   for (const field of [critters.id, critters.x, critters.y, critters.heading, critters.radius, critters.controller]) buffers.push(field.buffer);
+  for (const field of [corpses.x, corpses.y, corpses.radius, corpses.energy]) buffers.push(field.buffer);
   if (stats) buffers.push(...stats.data.map((column) => column.buffer));
   return buffers as Transferable[];
 }
@@ -237,8 +238,9 @@ function frame(): void {
     const snapshot = sim.snapshot();
     const stats = newStats(sim);
     const selected = selectedId > 0 ? sim.critterInfo(selectedId) : null;
-    if (!selected) selectedId = -1;
-    ctx.postMessage({ type: "frame", snapshot, selected, running, measuredTps, stateHash, stats }, frameBuffers(snapshot, stats));
+    const death = selectedId > 0 && !selected ? sim.critterDeath(selectedId) : null;
+    if (!selected && !death) selectedId = -1;
+    ctx.postMessage({ type: "frame", snapshot, selected, death, running, measuredTps, stateHash, stats }, frameBuffers(snapshot, stats));
     dirty = false;
   }
 

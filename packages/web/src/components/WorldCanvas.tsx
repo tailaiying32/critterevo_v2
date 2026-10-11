@@ -24,6 +24,7 @@ import {
 import { Application, Container, Graphics } from "pixi.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Camera } from "../render/Camera";
+import { CorpseLayer } from "../render/CorpseLayer";
 import { CritterLayer } from "../render/CritterLayer";
 import { PlantLayer } from "../render/PlantLayer";
 import { TerrainLayer } from "../render/TerrainLayer";
@@ -134,14 +135,15 @@ export function WorldCanvas({ client }: { client: SimClient }) {
       const canvas = app.canvas;
       host.appendChild(canvas);
 
-      // --- Scene, all in world units: terrain, plants, critters, the brush outline, and the world border ---
+      // --- Scene, all in world units: terrain, plants, corpses, critters, the brush outline, and the world border ---
       const worldLayer = new Container();
       const terrainContainer = new Container();
       const plantLayer = new PlantLayer();
+      const corpseLayer = new CorpseLayer();
       const critterLayer = new CritterLayer();
       const brushOutline = new Graphics();
       const border = new Graphics();
-      worldLayer.addChild(terrainContainer, plantLayer.container, critterLayer.container, brushOutline, border);
+      worldLayer.addChild(terrainContainer, plantLayer.container, corpseLayer.container, critterLayer.container, brushOutline, border);
       app.stage.addChild(worldLayer);
 
       let terrainLayer: TerrainLayer | null = null;
@@ -337,7 +339,7 @@ export function WorldCanvas({ client }: { client: SimClient }) {
 
       // --- Render loop ---
       app.ticker.add(() => {
-        const { activeConfig: config, terrain, worldId, snapshot, selected } = client.getStatus();
+        const { activeConfig: config, terrain, worldId, snapshot, selected, death } = client.getStatus();
         if (!config || !terrain) return;
         // Skip frames while the canvas is hidden or collapsed, so fitting never uses a bogus size.
         if (app.screen.width < 2 || app.screen.height < 2) return;
@@ -383,10 +385,11 @@ export function WorldCanvas({ client }: { client: SimClient }) {
           }
         }
 
-        // Critters are drawn even while plants are hidden.
+        // Critters and corpses are drawn even while plants are hidden.
         if (snapshot && snapshot.width === config.width && snapshot.height === config.height) {
           if (snapshot !== drawnCritters || camera.zoom !== drawnCritterZoom) {
-            critterLayer.update(snapshot.critters, selected, camera.zoom);
+            corpseLayer.update(snapshot.corpses, camera.zoom);
+            critterLayer.update(snapshot.critters, selected, death, camera.zoom);
             drawnCritters = snapshot;
             drawnCritterZoom = camera.zoom;
           }

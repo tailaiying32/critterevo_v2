@@ -7,7 +7,9 @@
 import {
   Biome,
   BIOME_NAMES,
+  COST_TERM_NAMES,
   countSpecks,
+  DEATH_CAUSE_NAMES,
   heightOf,
   isWater,
   parseConfig,
@@ -72,6 +74,8 @@ console.log();
 printPlantSummary(sim);
 console.log();
 printCritterSummary(sim);
+console.log();
+printMetabolismSummary(sim);
 
 function printTerrainSummary(terrain: TerrainData): void {
   const n = terrain.cols * terrain.rows;
@@ -149,6 +153,22 @@ function printCritterSummary(sim: Simulation): void {
   console.log(`  size        ${range(critters.size, 2)}`);
   console.log(`  max speed   ${range(critters.maxSpeed, 1)} u/s`);
   console.log(`  turn rate   ${range(critters.turnRate, 0)} °/s`);
+  console.log(`  energy      ${range(critters.energy, 0)}`);
+  console.log(`  water       ${range(critters.water, 1)}`);
+  console.log(`  age         ${range(critters.age, 0)} s`);
+}
+
+function printMetabolismSummary(sim: Simulation): void {
+  const { critters } = sim;
+  const deaths = DEATH_CAUSE_NAMES.map((name, cause) => `${critters.deaths[cause]} ${name.toLowerCase()}`).join(", ");
+  const total = critters.deaths.reduce((a, b) => a + b, 0);
+  console.log(`deaths      ${total}${total > 0 ? `: ${deaths}` : ""}`);
+  const corpses = sim.corpses.stats();
+  console.log(`corpses     ${corpses.count}, ${Math.round(corpses.energy).toLocaleString("en-US")} energy`);
+  if (sim.time === 0) return;
+  console.log(`\nenergy flow (whole population, per second on average over the run)`);
+  console.log(`  ${"Eaten".padEnd(12)}${(critters.eaten / sim.time).toFixed(1).padStart(10)}`);
+  COST_TERM_NAMES.forEach((name, term) => console.log(`  ${name.padEnd(12)}${(-critters.spent[term]! / sim.time).toFixed(1).padStart(10)}`));
 }
 
 /** "min to max, mean x" of a field over land, or null if there is no land. */

@@ -1,4 +1,12 @@
-export { Critters, type CritterInfo, type CritterSnapshot, type CritterTraits } from "./critters.js";
+export {
+  Critters,
+  DEATH_CAUSE_NAMES,
+  DeathCause,
+  type CritterInfo,
+  type CritterSnapshot,
+  type CritterTraits,
+  type DeathRecord,
+} from "./critters.js";
 export {
   CONTROLLER_NAMES,
   ControllerKind,
@@ -9,6 +17,27 @@ export {
   type Controller,
   type Outputs,
 } from "./controllers.js";
+export {
+  COST_TERM_COUNT,
+  COST_TERM_NAMES,
+  CostTerm,
+  costRates,
+  costsOf,
+  kleiberOf,
+  lifeScaleOf,
+  maxAgeOf,
+  maxEnergyOf,
+  maxWaterOf,
+  metabolicRates,
+  MIN_TERRAIN_FACTOR,
+  RUNNING_SPEED,
+  surfaceOf,
+  touchesWater,
+  WATER_PER_MASS,
+  type CostInputs,
+  type CostQuery,
+  type MetabolicRates,
+} from "./metabolism.js";
 export {
   accelerationOf,
   bodyFits,

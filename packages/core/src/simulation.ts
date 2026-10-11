@@ -1,10 +1,12 @@
 import { makeConfig, withLiveKnobs, type WorldConfig } from "./config.js";
 import type { ControllerKind } from "./critters/controllers.js";
-import { Critters, type CritterInfo, type CritterSnapshot, type CritterTraits } from "./critters/critters.js";
+import { Corpses, type CorpseSnapshot } from "./corpses/corpses.js";
+import { Critters, type CritterInfo, type CritterSnapshot, type CritterTraits, type DeathRecord } from "./critters/critters.js";
+import { COST_TERM_COUNT } from "./critters/metabolism.js";
 import { fnv1aArray, fnv1aWords, toHex } from "./hash.js";
 import { Plants, type PlantSnapshot } from "./plants/plants.js";
 import { Rng } from "./rng.js";
-import { STATS_BIOMES, STATS_COLUMNS, StatsRecorder } from "./stats.js";
+import { STATS_BIOMES, STATS_COLUMNS, STATS_DEATH_CAUSES, StatsRecorder } from "./stats.js";
 import { generateTerrain } from "./terrain/generate.js";
 import type { TerrainData } from "./terrain/types.js";
 
@@ -16,6 +18,7 @@ export interface Snapshot {
   height: number;
   plants: PlantSnapshot;
   critters: CritterSnapshot;
+  corpses: CorpseSnapshot;
 }
 
 /** Ticks between stats rows at the start of a run. Coarsens as the run grows (see StatsRecorder). */
@@ -31,12 +34,14 @@ export class Simulation {
   readonly terrain: TerrainData;
   readonly plants: Plants;
   readonly critters: Critters;
+  readonly corpses: Corpses;
   readonly stats: StatsRecorder;
   private currentConfig: WorldConfig;
   private readonly rng: Rng;
   private readonly plantRng: Rng;
   private readonly critterRng: Rng;
   private readonly wanderRng: Rng;
+  private readonly feedingRng: Rng;
   private readonly terrainHash: number;
   private tickCount = 0;
 
@@ -50,8 +55,10 @@ export class Simulation {
     this.plants.scatter(this.config.startingPlants);
     this.critterRng = Rng.derive(this.config.seed, "critters");
     this.wanderRng = Rng.derive(this.config.seed, "wander");
-    this.critters = new Critters(this.terrain, this.config, this.critterRng, this.wanderRng);
+    this.feedingRng = Rng.derive(this.config.seed, "feeding");
+    this.critters = new Critters(this.terrain, this.config, this.critterRng, this.wanderRng, this.feedingRng);
     this.critters.scatter(this.config.startingCritters);
+    this.corpses = new Corpses(this.terrain, this.config);
     this.stats = new StatsRecorder(statsColumns(), STATS_INTERVAL);
     this.recordStats();
   }
@@ -74,12 +81,16 @@ export class Simulation {
   step(): void {
     // Systems run here in the order defined in docs/DESIGN.md §13:
     // sense, think, move, attack, eat, reproduce, metabolize, die, environment, index, stats.
-    // Critters keep their spatial index up to date as they move.
+    // Each kind of entity keeps its own spatial index up to date as it changes.
     this.tickCount++;
     this.critters.think();
     this.critters.move();
-    // Environment. Plants keep their spatial index up to date as they sprout and die.
+    this.critters.feed(this.plants);
+    this.critters.metabolize();
+    this.critters.die(this.corpses, this.tickCount);
+    // Environment.
     this.plants.step(this.tickCount);
+    this.corpses.step();
     if (this.stats.due(this.tickCount)) this.recordStats();
   }
 
@@ -95,6 +106,7 @@ export class Simulation {
     this.currentConfig = withLiveKnobs(this.currentConfig, changes);
     this.plants.configure(this.currentConfig);
     this.critters.configure(this.currentConfig);
+    this.corpses.configure(this.currentConfig);
     return this.currentConfig;
   }
 
@@ -120,7 +132,12 @@ export class Simulation {
     return slot >= 0 ? this.critters.id[slot]! : -1;
   }
 
-  /** Removes the critter with an id. Returns whether it was there. */
+  /** How the critter with an id died, if it died recently, or null. Removed critters didn't die. */
+  critterDeath(id: number): DeathRecord | null {
+    return this.critters.deathOf(id);
+  }
+
+  /** Removes the critter with an id, leaving no corpse. Returns whether it was there. */
   removeCritter(id: number): boolean {
     const slot = this.critters.slotOf(id);
     if (slot >= 0) this.critters.remove(slot);
@@ -158,6 +175,7 @@ export class Simulation {
       height: this.config.height,
       plants: this.plants.snapshot(),
       critters: this.critters.snapshot(),
+      corpses: this.corpses.snapshot(),
     };
   }
 
@@ -166,34 +184,51 @@ export class Simulation {
    * config must produce the same hash at the same tick. Extend this as state grows.
    */
   stateHash(): string {
-    const rngWords = [this.rng, this.plantRng, this.critterRng, this.wanderRng].flatMap((rng) => {
+    const rngWords = [this.rng, this.plantRng, this.critterRng, this.wanderRng, this.feedingRng].flatMap((rng) => {
       const { a, b, c, d } = rng.getState();
       return [a, b, c, d];
     });
     const hash = fnv1aWords([this.tickCount, ...rngWords, this.terrainHash]);
-    return toHex(this.critters.hash(this.plants.hash(hash)));
+    return toHex(this.corpses.hash(this.critters.hash(this.plants.hash(hash))));
   }
 
   private recordStats(): void {
     const plants = this.plants.stats();
+    const corpses = this.corpses.stats();
+    const { critters } = this;
     this.stats.record([
       this.tickCount,
       plants.count,
       plants.energy,
       ...STATS_BIOMES.map((biome) => plants.countByBiome[biome]!),
       ...STATS_BIOMES.map((biome) => plants.energyByBiome[biome]!),
+      critters.count,
+      critters.totalEnergy(),
+      corpses.count,
+      corpses.energy,
+      critters.eaten,
+      ...critters.spent,
+      ...critters.deaths,
     ]);
   }
 }
 
 /** Stats columns, in the order recordStats writes them. */
 function statsColumns(): string[] {
+  const terms = Array.from({ length: COST_TERM_COUNT }, (_, term) => term);
   return [
     STATS_COLUMNS.tick,
     STATS_COLUMNS.plants,
     STATS_COLUMNS.plantEnergy,
     ...STATS_BIOMES.map(STATS_COLUMNS.plantsIn),
     ...STATS_BIOMES.map(STATS_COLUMNS.plantEnergyIn),
+    STATS_COLUMNS.critters,
+    STATS_COLUMNS.critterEnergy,
+    STATS_COLUMNS.corpses,
+    STATS_COLUMNS.corpseEnergy,
+    STATS_COLUMNS.eaten,
+    ...terms.map(STATS_COLUMNS.spentOn),
+    ...STATS_DEATH_CAUSES.map((_, cause) => STATS_COLUMNS.deathsBy(cause)),
   ];
 }
 

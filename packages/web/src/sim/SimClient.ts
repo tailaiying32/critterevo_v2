@@ -1,10 +1,12 @@
-import type { ControllerKind, CritterInfo, CritterTraits, Snapshot, StatsRows, TerrainData, WorldConfig } from "@critter-evo/core";
+import type { ControllerKind, CritterInfo, CritterTraits, DeathRecord, Snapshot, StatsRows, TerrainData, WorldConfig } from "@critter-evo/core";
 import type { Brush, FromWorker, Speed, ToWorker } from "./protocol";
 
 export interface SimStatus {
   snapshot: Snapshot | null;
   /** The selected critter as of the latest frame, or null. */
   selected: CritterInfo | null;
+  /** How the selected critter died, if it has. */
+  death: DeathRecord | null;
   running: boolean;
   measuredTps: number;
   stateHash: string;
@@ -71,6 +73,7 @@ export class SimClient {
   private status: SimStatus = {
     snapshot: null,
     selected: null,
+    death: null,
     running: false,
     measuredTps: 0,
     stateHash: "",
@@ -97,6 +100,7 @@ export class SimClient {
             worldId: this.status.worldId + 1,
             generating: false,
             selected: null,
+            death: null,
           });
           break;
         case "config":
@@ -107,6 +111,7 @@ export class SimClient {
           this.update({
             snapshot: msg.snapshot,
             selected: msg.selected,
+            death: msg.death,
             running: msg.running,
             measuredTps: msg.measuredTps,
             stateHash: msg.stateHash,

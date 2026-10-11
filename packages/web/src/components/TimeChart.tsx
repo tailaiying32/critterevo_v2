@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 
@@ -22,6 +22,12 @@ interface TimeChartProps {
   height?: number;
   /** Charts with the same key share a crosshair. */
   syncKey: string;
+  /**
+   * Show the chart's own legend under its title, which hides and focuses series
+   * itself. For charts whose section has no shared legend; hidden and focused
+   * are then ignored.
+   */
+  legend?: boolean;
 }
 
 /** Time axis steps in seconds, so ticks land on round seconds, minutes, and hours. */
@@ -34,7 +40,11 @@ const GRID = "#262c33";
  * only when the set of series changes; new data is swapped in place, so it can
  * update many times a second.
  */
-export function TimeChart({ title, x, series, hidden, focused = null, format, height = 150, syncKey }: TimeChartProps) {
+export function TimeChart({ title, x, series, hidden: sharedHidden, focused: sharedFocused = null, format, height = 150, syncKey, legend = false }: TimeChartProps) {
+  const [ownHidden, setOwnHidden] = useState<ReadonlySet<string>>(new Set());
+  const [ownFocused, setOwnFocused] = useState<string | null>(null);
+  const hidden = legend ? ownHidden : sharedHidden;
+  const focused = legend ? ownFocused : sharedFocused;
   const hostRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
@@ -105,10 +115,50 @@ export function TimeChart({ title, x, series, hidden, focused = null, format, he
   return (
     <figure className="time-chart">
       <figcaption>{title}</figcaption>
+      {legend && series.length > 1 && <ChartLegend series={series} hidden={ownHidden} onHiddenChange={setOwnHidden} onFocus={setOwnFocused} />}
       <div ref={hostRef} className="time-chart-plot">
         <div ref={tooltipRef} className="chart-tooltip" />
       </div>
     </figure>
+  );
+}
+
+/**
+ * A legend of line keys. Hovering a series brings it forward; clicking hides
+ * or shows it.
+ */
+export function ChartLegend({
+  series,
+  hidden,
+  onHiddenChange,
+  onFocus,
+}: {
+  series: ChartSeries[];
+  hidden: ReadonlySet<string>;
+  onHiddenChange: (hidden: ReadonlySet<string>) => void;
+  onFocus: (label: string | null) => void;
+}) {
+  return (
+    <ul className="chart-legend" onMouseLeave={() => onFocus(null)}>
+      {series.map((s) => (
+        <li key={s.label}>
+          <button
+            className={hidden.has(s.label) ? "off" : ""}
+            aria-pressed={!hidden.has(s.label)}
+            title={`${hidden.has(s.label) ? "Show" : "Hide"} ${s.label.toLowerCase()}`}
+            onMouseEnter={() => onFocus(hidden.has(s.label) ? null : s.label)}
+            onClick={() => {
+              const next = new Set(hidden);
+              if (!next.delete(s.label)) next.add(s.label);
+              onHiddenChange(next);
+            }}
+          >
+            <span className="line-key" style={{ background: s.color }} />
+            {s.label}
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -6,6 +6,8 @@
   --muted: #8a949e;
   --accent: #7cc47f;
   --warn: #e0b45c;
+  /* A lighter step of blue than the series blue, so water never reads as a cost. */
+  --water: #6da7ec;
   /* Background of controls and panels floating over the map. */
   --overlay: rgb(14 16 19 / 0.8);
   color-scheme: dark;
@@ -169,6 +171,10 @@ body,
 .time-chart {
   margin: 0;
   min-width: 0;
+}
+
+.time-chart .chart-legend {
+  margin: 0 0 6px -6px;
 }
 
 .time-chart figcaption {
@@ -568,6 +574,11 @@ dd {
   display: none;
 }
 
+/* The legend moves aside rather than run under the inspector. */
+.world-view:has(.inspector) .legend {
+  right: 284px;
+}
+
 .legend-gradient + .legend-gradient,
 .legend-gradient + .note,
 .note + .legend-items {
@@ -804,4 +815,93 @@ button.icon {
 
 .hint.warn {
   color: var(--warn);
+}
+
+/* Condition meters and the energy budget. Bars grow from the left, square
+   there, rounded at the data end, with a 2px gap between stacked segments. */
+.meters,
+.budget {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.meter,
+.budget-row {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.meter-label,
+.budget-label {
+  color: var(--muted);
+}
+
+.meter-track,
+.budget-track {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  border-radius: 0 4px 4px 0;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.meter-fill,
+.budget-segment {
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 100%;
+}
+
+.meter-fill,
+.budget-segment:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.meter-value,
+.budget-value {
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-legend {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 12px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.budget-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.budget-legend li.zero {
+  color: var(--muted);
+}
+
+.budget-legend .swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.budget-legend .value {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-net {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
 }

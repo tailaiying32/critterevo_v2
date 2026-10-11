@@ -25,7 +25,7 @@ Three rules apply throughout
 | 1 ✅ | Viewport and knobs | Pan, zoom, a world settings panel generated from config |
 | 2 ✅ | Terrain and climate | Generated landscape with biomes and climate overlays |
 | 3 ✅ | Plants | Plants spreading, competing, and recovering from damage |
-| 4 | Bodies and movement | Critters you can drive with the keyboard |
+| 4 ✅ | Bodies and movement | Critters you can drive with the keyboard |
 | 5 | Metabolism | Critters that eat, drink, burn energy, die, and leave corpses |
 | 6 | Vision | Two-eye wedge vision you can see and inspect live |
 | 7 | Brains | Critters driven by random NEAT brains, with a live brain view |
@@ -222,7 +222,7 @@ The CLI terrain summary grows with each step: grid size, generation time, terrai
 
 ---
 
-## Phase 4 — Bodies and movement
+## Phase 4 — Bodies and movement ✅
 
 **Decided**
 
@@ -268,42 +268,66 @@ The CLI terrain summary grows with each step: grid size, generation time, terrai
 
 ## Phase 5 — Metabolism, eating, drinking, death
 
-**Decide first**
+**Decided**
 
-- §16 Q1: hydration drain drivers, and whether food supplies water.
-- §16 Q16: heat stress versus cold stress.
-- §16 Q20: confirm automatic eating.
-- §16 Q21: confirm corpse decay.
+- §16 Q1: water use follows energy spent, as real water turnover tracks metabolic rate, so it grows with size, activity, and thermal stress with no extra terms. Plants give water through a knob, 0 by default so drinking matters (DESIGN.md §9.2).
+- §16 Q16: heat and cold have the same surface-area shape, with separate strength knobs. Only the degrees beyond the comfort band are charged, so the cost has no jump at the band's edge (DESIGN.md §9.1).
+- §16 Q20: eating is automatic. Each tick a critter that isn't full bites the fullest plant within reach, its body radius plus a reach knob, at a bite rate growing with mass^0.75 (DESIGN.md §10.1).
+- §16 Q21: corpses decay by half-life and are gone at 5% of their starting energy (DESIGN.md §5.2).
+- Every rate is per second, times the tick length. Cost knobs are shares of a size 1 critter's basal rate, which energy storage and fasting time set, so knobs read as times and shares rather than raw coefficients (DESIGN.md §9).
+- Max energy is storage × mass and max water 100 × mass. Max age is lifespan × mass^0.25, with no per-critter variation.
+- Trait upkeep grows with mass. Terrain cost is the movement cost times (1 / slowdown − 1), floored at a slowdown of 0.1, so slow ground divides the cost per distance by the slowdown.
+- Drinking works from any water cell within reach, shallow or deep, filling in a drink time that is the same for every size.
+- Health exists and stays full: nothing can harm it until combat in Phase 10.
+- Corpses hold meat energy × mass and can't be eaten until Phase 10, when the digestion trait gives meat a cost.
+- Critters feed in a new random order each tick, from their own random stream, so none always gets first pick of a contested plant.
+- Scattered and spawned critters start full. A critter removed with the inspector leaves no corpse and records no death.
+
+Defaults, as starting points to tune: energy storage 1,000 (ten full plants), fasting time 300 s, thirst time 120 s, lifespan 900 s, bite rate 50 per second, reach 3 units, drink time 5 s, running cost 4 times basal at 40 u/s, trait upkeep 5% of basal per 10 u/s and per 100°/s, comfortable from 50 to 70°F, 3% of basal per °F beyond it, meat 500 per unit of mass, corpse half-life 60 s.
 
 **Build** (DESIGN.md §6.3, §9, §10.1)
 
-- Energy and hydration state. Max energy storage derived from size.
-- Automatic eating of plants in range, with bite size per tick. Plant grazing death now happens for real.
-- Drinking at shallow water.
-- Cost terms: basal (Kleiber), traits upkeep, movement, terrain, thermal. Brain and eye costs exist as zero until phases 6 and 7.
-- Max age derived from mass.
-- Death from energy, hydration, health, or age. Corpses with mass-based energy and decay.
-- Death causes recorded.
+- Energy, water, health, and age per critter. Max energy, max water, and max age derived from mass.
+- Automatic eating of the fullest plant in reach. Plant grazing death now happens for real.
+- Drinking at any water within reach.
+- Cost terms: basal (Kleiber), trait upkeep, movement, terrain, thermal. Brain and senses exist as zero until phases 6 and 7.
+- Water used in proportion to energy spent.
+- Death from energy, water, health, or age, checked in that order. Corpses with mass-based energy and decay, in their own struct of arrays and spatial hash, drawn as fading red discs.
+- Death causes counted, and each death remembered so the inspector can say what happened.
+- Tick order: think, move, eat and drink, metabolize, die, plants, corpses, stats.
+- Stats: population, deaths by cause, critter and corpse energy, and energy eaten and spent by cost term, as running totals that stay exact when rows are thinned. Charts on the Statistics tab, and a metabolism summary in the CLI.
+- Metabolism, Eating and drinking, and Corpses knob groups, all live. Lifespan and its toggle join the Critters group.
+
+**Also built**
+
+- Spatial hash queries no longer allocate. Each query used to build a small array and two closures, which made a radius query about ten times slower than the search itself. With 1,000 critters a tick went from about 1,320 to 2,590 ticks per second headless, and movement got faster too. Plants alone are unchanged at about 21,600.
 
 **Debug tools**
 
-- **Energy budget** in the inspector: income and each cost term per tick, as a stacked bar.
+- **Energy budget** in the inspector: what it ate and each cost, per second, as two bars on one scale, with each cost listed, the net, and when energy or water runs out. Condition meters for energy, water, health, and age, and the temperature against the comfort band.
+- When the selected critter dies, the inspector shows the cause, time, and age, and a ring marks the spot.
 - Wander controller population, to watch the energy flow without brains.
-- Toggles for each cost term.
+- Toggles for each cost term, thirst, old age, and corpse decay, in the sidebar.
 
 **Automated tests**
 
-- Energy accounting: a critter's energy change per tick equals income minus the sum of cost terms.
+- Energy accounting: a critter's energy change per tick equals what it ate minus the sum of its costs, and its water change equals what it drank minus what it used, while eating, wading, moving, and cold.
 - Kleiber scaling: basal cost grows with mass but falls per unit of mass.
-- Larger bodies pay less thermal cost per unit of mass in the cold.
+- Larger bodies pay less thermal cost per unit of mass in the cold. Only degrees beyond the comfort band are charged.
+- Sprinting costs four times what half speed does. Terrain cost is 0 on flat, dry ground and divides the cost per distance by the slowdown. Each toggle zeroes only its own term.
+- Eating bites the fullest plant in reach at the bite rate, stops when full, and kills a plant grazed below its root reserve. Plants give water when the knob is on.
+- Drinking happens only within reach of water and fills in the drink time.
+- A resting critter starves after the fasting time and dies of thirst after the thirst time, sooner when moving. Old age comes at lifespan × mass^0.25, and never while aging is off.
+- Corpse energy is meat energy × mass, halves every half-life, and is removed at 5%. With decay off, corpses stay.
+- Determinism with eating, deaths, and corpses. Deaths are remembered by id, and removed critters leave no corpse or record. Stats match the live totals.
 
 **Manual test checklist**
 
-- [ ] Drive a critter to food and water by keyboard and keep it alive. Let it starve or dehydrate.
+- [ ] Drive a critter to food and water by keyboard and keep it alive. Let it starve or dehydrate. Keyboard thrust is all or nothing, so a driven critter always pays the sprinting cost.
 - [ ] Spawn a small and a large critter in tundra. The small one suffers more per unit of mass.
 - [ ] Sprinting drains energy visibly faster than cruising.
 - [ ] Corpses appear at deaths and fade over time.
-- [ ] A wandering population grazes down plants and dies back, and plants recover.
+- [ ] A wandering population grazes down plants and dies back, and plants recover. Wanderers can't find water, so turn thirst off, let the plants fill in first (they start from 2,000 and take about 15 minutes), and raise starting critters to about 1,000: 100 critters barely touch 56,000 plants.
 
 **Done when**: the energy model feels fair, and you can keep a critter alive by hand in some biomes but not others.
 

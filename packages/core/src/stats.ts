@@ -12,13 +12,31 @@ export const STATS_BIOMES = [
   Biome.Rainforest,
 ] as const;
 
-/** Column names of the recorded stats (docs/DESIGN.md §15). Grows as features are added. */
+/** Short names of the energy cost terms, indexed by CostTerm, for their stats columns. */
+export const STATS_COST_TERMS: readonly string[] = ["basal", "brain", "senses", "traits", "movement", "terrain", "thermal"];
+
+/** Short names of the death causes, indexed by DeathCause, for their stats columns. */
+export const STATS_DEATH_CAUSES: readonly string[] = ["starvation", "dehydration", "injury", "oldAge"];
+
+/**
+ * Column names of the recorded stats (docs/DESIGN.md §15). Grows as features
+ * are added. Energy eaten, energy spent, and deaths are running totals since
+ * the start of the run, so they stay exact when rows are thinned out; the
+ * difference between two rows is what happened in between.
+ */
 export const STATS_COLUMNS = {
   tick: "tick",
   plants: "plants",
   plantEnergy: "plantEnergy",
   plantsIn: (biome: Biome) => `plants.${biome}`,
   plantEnergyIn: (biome: Biome) => `plantEnergy.${biome}`,
+  critters: "critters",
+  critterEnergy: "critterEnergy",
+  corpses: "corpses",
+  corpseEnergy: "corpseEnergy",
+  eaten: "eaten",
+  spentOn: (term: number) => `spent.${STATS_COST_TERMS[term]}`,
+  deathsBy: (cause: number) => `deaths.${STATS_DEATH_CAUSES[cause]}`,
 } as const;
 
 /** Rows from some point on, one array per column. */

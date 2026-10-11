@@ -1,4 +1,4 @@
-import { ControllerKind, type CritterInfo, type CritterSnapshot } from "@critter-evo/core";
+import { ControllerKind, type CritterInfo, type CritterSnapshot, type DeathRecord } from "@critter-evo/core";
 import { Container, Graphics, Particle, ParticleContainer, Texture } from "pixi.js";
 
 /** Smallest radius on screen, in pixels, so critters stay visible when zoomed out. */
@@ -10,6 +10,8 @@ const CONTROLLER_COLORS: Record<ControllerKind, [number, number, number]> = {
   [ControllerKind.Keyboard]: [96, 214, 255],
 };
 const SELECTION_COLOR = 0xffffff;
+/** Ring where the selected critter died, in screen pixels. */
+const DEATH_RING_PIXELS = 10;
 const VELOCITY_COLOR = 0xffe066;
 /** The velocity line shows where the selected critter would be after this many seconds. */
 const VELOCITY_SECONDS = 0.5;
@@ -39,8 +41,11 @@ export class CritterLayer {
     for (const [kind, [r, g, b]] of Object.entries(CONTROLLER_COLORS)) this.colors[Number(kind)] = (255 << 24) | (b << 16) | (g << 8) | r;
   }
 
-  /** Shows the critters in a snapshot, at a zoom in screen pixels per world unit, with the selected one marked. */
-  update(critters: CritterSnapshot, selected: CritterInfo | null, zoom: number): void {
+  /**
+   * Shows the critters in a snapshot, at a zoom in screen pixels per world
+   * unit, with the selected one marked, or where it died if it has.
+   */
+  update(critters: CritterSnapshot, selected: CritterInfo | null, death: DeathRecord | null, zoom: number): void {
     const n = critters.count;
     const children = this.particles.particleChildren;
     if (children.length !== n) {
@@ -71,6 +76,9 @@ export class CritterLayer {
           .lineTo(selected.x + selected.vx * VELOCITY_SECONDS, selected.y + selected.vy * VELOCITY_SECONDS)
           .stroke({ width: 1.5 * px, color: VELOCITY_COLOR });
       }
+    } else if (death) {
+      const px = 1 / zoom;
+      this.overlay.circle(death.x, death.y, DEATH_RING_PIXELS * px).stroke({ width: 2 * px, color: SELECTION_COLOR, alpha: 0.6 });
     }
   }
 

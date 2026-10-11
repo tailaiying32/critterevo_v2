@@ -1,7 +1,8 @@
-import { Biome, BIOME_NAMES, STATS_BIOMES, STATS_COLUMNS, type TerrainData } from "@critter-evo/core";
+import { Biome, BIOME_NAMES, COST_TERM_NAMES, DeathCause, DEATH_CAUSE_NAMES, STATS_BIOMES, STATS_COLUMNS, type TerrainData } from "@critter-evo/core";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { SimClient, StatsHistory } from "../sim/SimClient";
-import { TimeChart, type ChartSeries } from "./TimeChart";
+import { COST_TERM_COLORS, EATEN_COLOR, SERIES_COLORS, shownCostTerms, SPENT_COLOR } from "./seriesColors";
+import { ChartLegend, TimeChart, type ChartSeries } from "./TimeChart";
 
 type Mode = "total" | "biome";
 
@@ -23,6 +24,14 @@ const BIOME_LINE_COLORS: Record<(typeof STATS_BIOMES)[number], string> = {
   [Biome.Savanna]: "#9085e9",
   [Biome.Rainforest]: "#e66767",
 };
+/** Deaths by cause in legend order, each with the next series slot. Thirst first, since it is usually the most. */
+const DEATH_SERIES = [DeathCause.Dehydration, DeathCause.Starvation, DeathCause.OldAge, DeathCause.Injury].map((cause, k) => ({
+  cause,
+  color: SERIES_COLORS[k]!,
+}));
+/** Living critters, and corpses beside them: a validated pair. */
+const CRITTER_COLOR = SERIES_COLORS[0];
+const CORPSE_COLOR = SERIES_COLORS[7];
 /** How often the charts redraw while stats stream in. */
 const REFRESH_MS = 250;
 const CHART_HEIGHT = 220;
@@ -47,6 +56,7 @@ export function StatisticsPage({ client }: { client: SimClient }) {
         </div>
       </header>
       <PlantCharts client={client} />
+      <CritterCharts client={client} />
     </div>
   );
 }
@@ -93,24 +103,7 @@ function PlantCharts({ client }: { client: SimClient }) {
           ))}
         </div>
       </header>
-      {legend.length > 0 && (
-        <ul className="chart-legend" onMouseLeave={() => setFocused(null)}>
-          {legend.map((s) => (
-            <li key={s.label}>
-              <button
-                className={hidden.has(s.label) ? "off" : ""}
-                aria-pressed={!hidden.has(s.label)}
-                title={`${hidden.has(s.label) ? "Show" : "Hide"} ${s.label.toLowerCase()}`}
-                onMouseEnter={() => setFocused(hidden.has(s.label) ? null : s.label)}
-                onClick={() => setHidden(toggled(hidden, s.label))}
-              >
-                <span className="line-key" style={{ background: s.color }} />
-                {s.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {legend.length > 0 && <ChartLegend series={legend} hidden={hidden} onHiddenChange={setHidden} onFocus={setFocused} />}
       <div className="stats-charts">
         {charts.map((chart) => (
           <TimeChart
@@ -122,12 +115,94 @@ function PlantCharts({ client }: { client: SimClient }) {
             focused={focused}
             format={chart.format}
             height={CHART_HEIGHT}
-            syncKey="plants"
+            syncKey="stats"
           />
         ))}
       </div>
     </section>
   );
+}
+
+/**
+ * Critter population, deaths by cause, where their energy comes from and goes,
+ * and the energy held in living critters and in corpses.
+ */
+function CritterCharts({ client }: { client: SimClient }) {
+  const rows = useStatsRows(client, REFRESH_MS);
+  const dt = useSyncExternalStore(client.subscribe, () => client.getStatus().activeConfig?.dt ?? 1);
+  const x = useMemo(() => rows.column(STATS_COLUMNS.tick).map((tick) => tick * dt), [rows, dt]);
+  const charts = useMemo(() => buildCritterCharts(rows, x), [rows, x]);
+  return (
+    <section className="settings-card stats-section">
+      <header className="stats-section-header">
+        <h2>Critters</h2>
+      </header>
+      <div className="stats-charts">
+        {charts.map((chart) => (
+          <TimeChart
+            key={chart.title}
+            title={chart.title}
+            x={x}
+            series={chart.series}
+            format={chart.format}
+            height={CHART_HEIGHT}
+            syncKey="stats"
+            legend
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function buildCritterCharts(rows: StatsHistory, x: number[]): Chart[] {
+  if (rows.column(STATS_COLUMNS.critters).length === 0) return [];
+  const spent = Array.from(COST_TERM_NAMES, (_, term) => rateOf(rows.column(STATS_COLUMNS.spentOn(term)), x));
+  const peaks = spent.map((values) => values.reduce((a, b) => Math.max(a, b), 0));
+  const totalSpent = x.map((_, k) => spent.reduce((sum, values) => sum + values[k]!, 0));
+  return [
+    {
+      title: "Critters",
+      format: formatCompact,
+      series: [{ label: "Critters", color: CRITTER_COLOR, values: rows.column(STATS_COLUMNS.critters) }],
+    },
+    {
+      title: "Deaths so far, by cause",
+      format: formatCompact,
+      series: DEATH_SERIES.map(({ cause, color }) => ({ label: DEATH_CAUSE_NAMES[cause]!, color, values: rows.column(STATS_COLUMNS.deathsBy(cause)) })),
+    },
+    {
+      title: "Energy eaten and spent per second, all critters",
+      format: formatCompact,
+      series: [
+        { label: "Eaten", color: EATEN_COLOR, values: rateOf(rows.column(STATS_COLUMNS.eaten), x) },
+        { label: "Spent", color: SPENT_COLOR, values: totalSpent },
+      ],
+    },
+    {
+      title: "Energy spent per second, by cost",
+      format: formatCompact,
+      series: shownCostTerms(peaks).map((term) => ({ label: COST_TERM_NAMES[term]!, color: COST_TERM_COLORS[term], values: spent[term]! })),
+    },
+    {
+      title: "Energy held",
+      format: formatCompact,
+      series: [
+        { label: "In critters", color: CRITTER_COLOR, values: rows.column(STATS_COLUMNS.critterEnergy) },
+        { label: "In corpses", color: CORPSE_COLOR, values: rows.column(STATS_COLUMNS.corpseEnergy) },
+      ],
+    },
+  ];
+}
+
+/**
+ * Average rate per second between each row and the one before, from a running
+ * total. Exact even after rows are thinned out. The first row copies the second.
+ */
+function rateOf(total: number[], x: number[]): number[] {
+  const rate = total.map((value, k) => (k > 0 && x[k]! > x[k - 1]! ? (value - total[k - 1]!) / (x[k]! - x[k - 1]!) : 0));
+  if (rate.length > 1) rate[0] = rate[1]!;
+  return rate;
 }
 
 function buildCharts(rows: StatsHistory, terrain: TerrainData, mode: Mode): Chart[] {
@@ -188,12 +263,6 @@ function useStatsRows(client: SimClient, intervalMs: number): StatsHistory {
     };
   }, [client, intervalMs]);
   return rows;
-}
-
-function toggled(set: ReadonlySet<string>, item: string): Set<string> {
-  const next = new Set(set);
-  if (!next.delete(item)) next.add(item);
-  return next;
 }
 
 const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumSignificantDigits: 3 });

@@ -57,11 +57,13 @@ Design principles:
 | Combat | Attack is a brain output; critters can eat what they kill | Decided |
 | Diet | Digestion spectrum trait from herbivore to carnivore | Decided |
 | Energy model | All traits and brain size cost energy; costs are knobs | Decided |
-| Hydration | Separate resource from energy; drinking from water | Decided |
+| Hydration | Separate resource from energy; drinking from water. Water use follows energy spent; plants hold no water by default (a knob) | Decided |
+| Energy units | Every rate is per second, times the tick length, so tick length never changes the biology. Cost knobs are shares of a size 1 critter's basal rate | Decided |
+| Thermal stress | Same surface-area shape for heat and cold, with separate strength knobs; only the degrees beyond the comfort band are charged | Decided |
 | Shallow water, mountains | Passable but slow; slowdown depends on local conditions | Decided |
 | Field of view | Evolvable trait | Decided |
 | Asexual threshold | Derived from physical traits, not a gene | Decided |
-| Max age | Derived from body mass (lifespan ∝ mass^0.25), not a gene | Proposed |
+| Max age | Derived from body mass (lifespan ∝ mass^0.25), not a gene | Decided |
 | Plant reproduction | Plants seed nearby, crowding lowers a seed's chance to take root, a few seeds land anywhere, plants age and die, and grazing below a root reserve kills | Decided |
 | Recurrent connections | Allowed | Proposed |
 | Terrain slowdown | Set by water depth, slope, and critter size; also costs energy. Slope follows Tobler's hiking function on a 240 ft per unit map scale | Decided |
@@ -72,9 +74,9 @@ Design principles:
 | Repo layout | npm workspaces monorepo: `core`, `web`, `cli` packages | Decided (scaffolded) |
 | Tooling | Vite, Vitest, ESLint, TypeScript 6.0 | Decided (scaffolded) |
 | Hosting | GitHub Pages, deployed by GitHub Actions | Decided |
-| Eating | Automatic when in range, not a brain output | Proposed |
+| Eating | Automatic when in range, not a brain output: the fullest plant in reach, at a bite rate growing with mass^0.75 | Decided |
 | Sexes | No separate sexes; any two compatible critters can mate | Proposed |
-| Corpse decay | Corpses lose energy over time | Proposed |
+| Corpse decay | Corpses lose half their energy every half-life and are gone at 5% | Decided |
 | Deferred | Seasons, climate drift, parasites, insulation trait, day/night | Decided |
 
 ---
@@ -309,10 +311,11 @@ With these defaults the default world settles at about 20,000 plants within abou
 
 ### 5.2 Corpses (meat)
 
-- When a critter dies, it becomes a corpse at its position.
-- Corpse energy is proportional to body mass.
+- When a critter dies, it becomes a corpse at its position, the size of its body. A critter removed with the inspector leaves none.
+- Corpse energy is *meat energy* times body mass: 500 per unit of mass by default, so a size 1 corpse holds five full plants' worth.
 - Meat is more energy-dense than plant matter.
-- Corpses decay over time (Proposed), so the world does not fill with meat.
+- **Decay (Decided)**: a corpse loses a fixed share of its energy each tick, so it halves every *half-life* (60 s), as decomposition roughly does, and it is gone once 5% of its starting energy is left, after about 4.3 half-lives. Decay can be turned off.
+- Corpses can't be eaten until diets arrive in Phase 10, since without the digestion trait meat would be free food at full value. They have their own spatial hash for then.
 
 ---
 
@@ -344,7 +347,9 @@ A critter's genome has two parts.
 |---|---|---|
 | Radius | `5 × size` world units, so a size 1 critter is 10 units across | Decided |
 | Mass | `size³`, so a size 1 critter has mass 1 | Decided |
-| Max age | `k_lifespan × mass^0.25` (larger animals live longer) | Proposed |
+| Max energy | *Energy storage* × mass: fat stores grow in proportion to the body, so fasting time grows as mass^0.25 | Decided |
+| Max water | 100 × mass: water has no other unit, so a size 1 critter's water reads as a percentage | Decided |
+| Max age | *Lifespan* × mass^0.25 (larger animals live longer). Every critter of one size lives exactly this long unless something else kills it first | Decided |
 | Asexual threshold | Function of physical traits, such as a fraction of max energy storage | Decided; exact formula open |
 
 **Brain genome**: NEAT node genes and connection genes. See section 7.
@@ -354,14 +359,14 @@ A critter's genome has two parts.
 - position, heading, velocity
 - energy (stored food energy)
 - hydration (stored water)
-- health
+- health, as a share of full. Nothing harms critters until combat arrives in Phase 10, so it stays full until then
 - age
 - reproduction cooldown
 - species ID (assigned by clustering, for display and stats only)
 
 ### 6.3 Death
 
-A critter dies when energy reaches zero, hydration reaches zero, health reaches zero, or age reaches max age. It becomes a corpse.
+A critter dies when energy reaches zero, hydration reaches zero, health reaches zero, or age reaches max age. It becomes a corpse. The cause is recorded as starvation, dehydration, injury, or old age, checked in that order when more than one applies. Scattered and spawned critters start at age 0 with full energy, water, and health.
 
 ---
 
@@ -468,19 +473,26 @@ Each tick, after every critter has decided (section 13):
 Energy is the single currency. Every tick, a critter pays:
 
 ```
-cost = basal + brain + senses + traits + movement + thermal
+cost = (basal + brain + senses + traits + movement + terrain + thermal) × dt
 ```
 
-| Term | Formula (shape) | Biological anchor |
-|---|---|---|
-| Basal | `k_basal × mass^0.75` | Kleiber's law |
-| Brain | `k_neuron × hiddenNodes + k_synapse × enabledConnections` | Brain is about 2% of human mass and 20% of energy use |
-| Senses | `k_wedge × totalWedges + k_range × totalWedges × visionRange` | Eyes are costly organs |
-| Traits | `k_offense × offense + k_defense × defense + k_speed × maxSpeed + ...` | Weapons, armor, and muscle need upkeep |
-| Movement | `k_move × mass × speed²` | Drag-like cost; sprinting is expensive |
-| Thermal | see 9.1 | Heat balance |
+**Units (Decided).** Every rate is per second and multiplied by the tick length, as plant growth is, so changing the tick length never changes the biology. Every cost knob is a share of one *unit*: the basal rate of a size 1 critter, set by *energy storage* ÷ *fasting time*. Fasting time is how long a full size 1 critter lasts at rest at a comfortable temperature. Knobs that read as times and shares are easier to tune by feel than raw coefficients, and changing the fasting time speeds up or slows down the whole metabolism at once.
 
-Every `k_*` is a world parameter. The brain cost knob is the main lever for whether brains grow or stay small.
+| Term | Formula (shape) | Default | Biological anchor |
+|---|---|---|---|
+| Basal | `unit × mass^0.75` | fasting time 300 s, storage 1,000 | Kleiber's law |
+| Brain | `k_neuron × hiddenNodes + k_synapse × enabledConnections` | 0 until Phase 7 | Brain is about 2% of human mass and 20% of energy use |
+| Senses | `k_wedge × totalWedges + k_range × totalWedges × visionRange` | 0 until Phase 6 | Eyes are costly organs |
+| Traits | `unit × (k_speed × maxSpeed / 10 + k_turn × turnRate / 100 + ...) × mass` | 5% per 10 u/s, 5% per 100°/s | Weapons, armor, and muscle need upkeep, and muscle grows with the body |
+| Movement | `unit × k_run × mass × (speed / 40)²` | 4 × the unit at 40 u/s | Drag-like cost; sprinting is expensive |
+| Terrain | `movement × k_terrain × (1 / max(0.1, wading × slope) − 1)` | 1 | Slow ground costs more per unit of distance (§4.3.1) |
+| Thermal | see 9.1 | | Heat balance |
+
+Every `k_*` is a world parameter, and every term has an on/off toggle. The brain cost knob is the main lever for whether brains grow or stay small.
+
+- **Trait upkeep (Decided)** grows with mass, since muscle grows with the body: a size 4 critter pays more than a size ¼ one for the same top speed.
+- **Movement** uses the critter's actual speed after moving. Half speed costs a quarter as much, so going slowly is also cheaper per unit of distance.
+- **Terrain (Decided)**: movement plus terrain is the flat-ground cost per unit of distance divided by the slowdown factor (§4.3.1), so ground that halves top speed doubles the cost of each unit of distance at a given speed. The factor is floored at 0.1, since it falls to 0 at deep water while a critter can still be moving. It is 0 on flat, dry ground.
 
 ### 9.1 Thermal cost (emergent from size)
 
@@ -488,17 +500,22 @@ No insulation trait. Temperature affects critters through body geometry alone:
 
 - Heat loss scales with surface area, roughly `mass^(2/3)`.
 - Heat production scales with metabolism, roughly `mass^(3/4)`.
-- Outside a comfort band around a neutral temperature, a critter pays `k_thermal × |ambient − neutral| × mass^(2/3)` per tick.
+- Outside a *comfort band* around a *comfort temperature*, a critter pays `unit × k × (degrees beyond the band) × mass^(2/3)`, with `k` the *cold cost* below the band and the *heat cost* above it. Only the degrees beyond the band are charged, so the cost rises smoothly from the band's edge (Decided).
+- Ambient temperature is the mean annual temperature of the cell under the critter.
 
-Because the cost scales with surface area while capacity scales with mass, larger bodies cope with cold better per unit mass. Bergmann's rule should emerge without being coded. Whether heat stress penalizes large bodies symmetrically is an open question.
+Because the cost scales with surface area while capacity scales with mass, larger bodies cope with cold better per unit mass. Bergmann's rule should emerge without being coded.
+
+**Heat versus cold (Decided)**: the same surface-area shape on both sides, with separate strengths, so making heat and cold differ is tuning rather than code. Heat matters little on the default world, which tops out near 73°F with land averaging 53°F. Heat also costs water, since water use follows energy spent (§9.2).
+
+Defaults: comfortable from 50 to 70°F (60 ± 10), and 3% of the unit per degree either way, roughly what a small mammal pays per °F below the cold end of its comfort range. A size 1 critter in tundra at 0°F pays 1.5 times its basal rate on top of it.
 
 ### 9.2 Hydration
 
 Hydration is a second resource, separate from energy.
 
-- Critters drink when within interaction range of shallow water.
-- Hydration drains every tick. How the drain scales (with size, activity, ambient temperature) is open.
-- Whether meat or plants also supply some water is open.
+- **Drinking (Decided)**: a critter drinks whenever any water cell, shallow or deep, is within its reach: its body radius plus the *reach* knob (3 units). Deep water counts because a critter can stand at a deep-water edge where the shallow band is thin. It fills from empty in the *drink time* (5 s), whatever its size.
+- **Drain (Decided)**: water use follows energy spent, one unit of water per so much energy, as real water turnover tracks metabolic rate. So it grows with size (Kleiber), activity, and thermal stress with no extra terms. The rate is set by *thirst time*: how long a full size 1 critter lasts at rest at a comfortable temperature (120 s). Turning a cost off also stops the water it would have used.
+- **Water in food (Decided)**: plants give water in proportion to energy eaten, set by a knob, 0 by default so drinking matters. Meat gives none until diets arrive.
 
 ---
 
@@ -507,6 +524,15 @@ Hydration is a second resource, separate from energy.
 ### 10.1 Eating
 
 When a plant or corpse is within the critter's interaction radius, the critter eats from it, up to a bite size per tick, until it is full or the food is gone.
+
+**Decided for plants**:
+
+- Eating is automatic, not a brain output. An eat output has no downside, so it would only evolve to always on.
+- Reach is the body radius plus the *reach* knob, the same as for drinking.
+- Each tick a critter that isn't full bites the **fullest plant in reach**, as selective grazers do. This grazes a patch evenly rather than killing plants one at a time, and leaves regrowing plants alone.
+- The bite is the *bite rate* (50 energy per second for size 1) times mass^0.75, so intake keeps pace with basal cost. A flat bite would starve large critters.
+- A plant grazed below its root reserve dies (§5.1), so a critter that stays in one place kills the plants around it.
+- When two critters reach for the same plant, the one that feeds first takes its bite. Critters feed in a new random order each tick, from their own random stream, so no critter always gets first pick (§13).
 
 ### 10.2 Digestion spectrum
 
@@ -614,10 +640,10 @@ All critters sense and decide from the same world state before anyone acts, so i
 2. **Think**: evaluate every brain and record outputs.
 3. **Move**: apply turning and thrust, resolve walls and terrain.
 4. **Attack**: resolve strikes and apply damage.
-5. **Eat**: resolve feeding on plants and corpses.
+5. **Eat**: resolve feeding on plants and corpses, and drinking, in a random order each tick.
 6. **Reproduce**: resolve mating pairs, then asexual births.
 7. **Metabolize**: deduct all energy costs, age everyone, tick cooldowns.
-8. **Die**: remove dead critters and spawn corpses.
+8. **Die**: remove dead critters in slot order, count them by cause, and spawn corpses.
 9. **Environment**: grow and seed plants, decay corpses.
 10. **Index**: update the spatial hash.
 11. **Stats**: record metrics every K ticks.
@@ -643,8 +669,9 @@ Conflict rules, such as two critters eating the last bite of one plant or one cr
 - **Critter coloring modes**: by species, by digestion trait, by energy, by generation.
 - **Controls**: play, pause, single step, speed.
 - **World setup**: a Settings page with every knob, grouped by category and searchable, plus a few featured knobs beside the world. Generate new world. Knobs marked live apply at once to the running world; the rest apply to the next world.
-- **Inspector** for the selected critter: traits, state, energy budget breakdown by cost term, live brain graph with activations, lineage.
-- **Statistics**, on its own tab beside World and Settings, drawn with uPlot: plant count and plant energy over time, in total or per biome as density, so sparse and dense biomes share one scale; population over time, species count, trait histograms over time (digestion, size, eye placement angle, eye field of view, wedges per eye, vision range), sexual vs asexual birth fraction, average brain size.
+- **Inspector** for the selected critter: energy, water, health, and age; the energy budget as two bars on one scale, what it ate and its costs stacked by term, per second, with the net and when energy or water runs out; traits; state; live brain graph with activations; lineage. When the selected critter dies, the inspector says how and a ring marks the spot.
+- **Corpses** are drawn as dull red discs with a dark cross, the size of the body, fading as they decay.
+- **Statistics**, on its own tab beside World and Settings, drawn with uPlot: plant count and plant energy over time, in total or per biome as density, so sparse and dense biomes share one scale; population over time, deaths by cause, energy eaten and spent per second in total and by cost, energy held in critters and corpses, species count, trait histograms over time (digestion, size, eye placement angle, eye field of view, wedges per eye, vision range), sexual vs asexual birth fraction, average brain size.
 - **Save, load, and export** of world state and stats.
 
 ### 14.2 CLI
@@ -661,9 +688,9 @@ critter-evo run --config world.json --seed 42 --ticks 100000 --out results/
 
 ## 15. Metrics
 
-Recorded in `core` every 30 ticks from tick 0, column by column. When 2,048 rows are full, every other row is dropped and the interval doubles, so a long run keeps its whole history at a coarser resolution in bounded memory. The web app and the CLI read the same recorder. Plant count and plant energy, in total and per biome, are recorded from Phase 3. The full list:
+Recorded in `core` every 30 ticks from tick 0, column by column. When 2,048 rows are full, every other row is dropped and the interval doubles, so a long run keeps its whole history at a coarser resolution in bounded memory. The web app and the CLI read the same recorder. Plant count and plant energy, in total and per biome, are recorded from Phase 3; population, deaths by cause, critter and corpse energy, and energy eaten and spent from Phase 5. Deaths and energy eaten and spent are running totals, so they stay exact when rows are thinned; charts take the difference between rows. The full list:
 
-- population, births, deaths by cause (starvation, combat, old age)
+- population, births, deaths by cause (starvation, dehydration, injury, old age)
 - species count and sizes
 - fraction of births that were sexual
 - mean and distribution of each physical trait
@@ -677,7 +704,7 @@ Recorded in `core` every 30 ticks from tick 0, column by column. When 2,048 rows
 
 ### Decided in spirit, details open
 
-1. **Hydration details.** Decided: hydration is a separate resource. Open: what drives the drain rate, and whether food supplies any water.
+1. ~~Hydration details~~ Resolved: water use follows energy spent; plants give water through a knob, 0 by default (section 9.2).
 2. ~~Terrain slowdown conditions~~ Resolved: wading by depth and size, slope by Tobler's hiking function and size, on a 240 ft per unit map scale knob. No movement cost by biome (section 4.3.1).
 3. ~~Field of view~~ Resolved: evolvable.
 4. **Wedge content encoding.** One-hot per category (about 6 inputs per wedge), a smaller encoding, or extra detail about critters seen, such as relative size or genetic similarity?
@@ -685,7 +712,7 @@ Recorded in `core` every 30 ticks from tick 0, column by column. When 2,048 rows
 4b. ~~Zone awareness~~ Resolved: no binocular input; selection favors brains that trust the right distances.
 4c. ~~Eye symmetry~~ Resolved: mirrored eyes sharing one set of traits.
 5. **Asexual threshold formula.** Decided: derived from physical traits, not a gene. Open: the exact formula, and how it relates to the mating threshold so cloning does not always fire before mating.
-6. **Mutation rate.** Evolvable trait as in v1, or world knob? Max age is proposed as derived from mass (section 6.1).
+6. **Mutation rate.** Evolvable trait as in v1, or world knob? Max age is derived from mass (section 6.1).
 
 ### Brain
 
@@ -704,15 +731,15 @@ Recorded in `core` every 30 ticks from tick 0, column by column. When 2,048 rows
 
 14. ~~Critter-critter collision~~ Resolved: soft repulsion, split by mass (section 8).
 15. Attack cooldown, and energy cost per strike.
-16. Heat stress: symmetric with cold stress, or does it scale differently with size?
+16. ~~Heat stress~~ Resolved: the same surface-area shape as cold, with its own strength knob (section 9.1).
 
 ### Project
 
 17. ~~Hosting~~ Resolved: GitHub Pages.
 18. ~~Charting library for the stats panel~~ Resolved: uPlot, for fast live time series. Trait-over-time heatmaps (Phase 8) will be custom canvas.
 19. ~~Target world size and population~~ Resolved: about 1,000 critters on the default world. Plants alone must run at 5,000 ticks per second or more at Max. On the earlier 3000 by 3000 default, about 20,000 plants ran at about 11,000 in the browser and 40,000 headless. On the 5000 by 5000 default, about 56,000 plants at the same density run at about 4,200 in the browser and 21,000 headless, short of that budget. Closing the gap is left to the Phase 11 performance pass.
-20. Eating automatic (Proposed) or a brain output?
-21. Corpse decay (Proposed): yes or no?
+20. ~~Eating automatic or a brain output~~ Resolved: automatic, from the fullest plant in reach (section 10.1).
+21. ~~Corpse decay~~ Resolved: yes, by half-life (section 5.2).
 
 ---
 
@@ -724,7 +751,7 @@ Recorded in `core` every 30 ticks from tick 0, column by column. When 2,048 rows
 | OpenSimplex terrain, 4 octaves | Kept for elevation, with gentler persistence so land is smooth; temperature and rainfall fields added |
 | Mountains and water | Kept, with shares set by coverage knobs; shallow water and biomes added |
 | Random food spawn on grass | Regrowing plants by biome |
-| Hunger, thirst, health | Energy and health; hydration open |
+| Hunger, thirst, health | Energy, water, and health |
 | 8-way orientation and rotation costs | Continuous heading and turn rate |
 | A* pathfinding with path cache | Removed; the brain steers |
 | Brain picks a priority; code finds target | Brain controls movement and actions directly |

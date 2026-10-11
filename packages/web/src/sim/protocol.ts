@@ -1,4 +1,4 @@
-import type { ControllerKind, CritterInfo, CritterTraits, Snapshot, StatsRows, TerrainData, WorldConfig } from "@critter-evo/core";
+import type { ControllerKind, CritterInfo, CritterTraits, DeathRecord, Snapshot, StatsRows, TerrainData, WorldConfig } from "@critter-evo/core";
 
 /** Simulation speed: a target ticks per second, or as fast as the worker can go. */
 export type Speed = number | "max";
@@ -53,8 +53,10 @@ export type FromWorker =
       type: "frame";
       /** Its plant and critter buffers are transferred, not copied. */
       snapshot: Snapshot;
-      /** The selected critter, or null if none is selected. */
+      /** The selected critter, or null if none is selected or it has died. */
       selected: CritterInfo | null;
+      /** How the selected critter died, if it has. It stays selected until something else is picked. */
+      death: DeathRecord | null;
       running: boolean;
       /** Ticks actually simulated per wall-clock second, measured in the worker. */
       measuredTps: number;

@@ -24,6 +24,8 @@ export class SpatialHash {
   private xs: Float64Array;
   private ys: Float64Array;
   private size = 0;
+  /** Reused by cellRange, so queries allocate nothing. */
+  private readonly range = new Int32Array(4);
 
   constructor(width: number, height: number, cellSize = SPATIAL_CELL_SIZE, capacity = 1024) {
     this.cellSize = cellSize;
@@ -79,7 +81,11 @@ export class SpatialHash {
   forEachWithin(x: number, y: number, r: number, visit: (id: number, distanceSq: number) => void): void {
     const rSq = r * r;
     const { xs, ys, next, head, cols } = this;
-    const [c0, c1, r0, r1] = this.cellRange(x, y, r);
+    const range = this.cellRange(x, y, r);
+    const c0 = range[0]!;
+    const c1 = range[1]!;
+    const r0 = range[2]!;
+    const r1 = range[3]!;
     for (let row = r0; row <= r1; row++) {
       for (let col = c0; col <= c1; col++) {
         for (let id = head[row * cols + col]!; id >= 0; id = next[id]!) {
@@ -103,7 +109,11 @@ export class SpatialHash {
     if (limit <= 0) return 0;
     const rSq = r * r;
     const { xs, ys, next, head, cols } = this;
-    const [c0, c1, r0, r1] = this.cellRange(x, y, r);
+    const range = this.cellRange(x, y, r);
+    const c0 = range[0]!;
+    const c1 = range[1]!;
+    const r0 = range[2]!;
+    const r1 = range[3]!;
     let count = 0;
     for (let row = r0; row <= r1; row++) {
       for (let col = c0; col <= c1; col++) {
@@ -123,17 +133,20 @@ export class SpatialHash {
     return row * this.cols + col;
   }
 
-  /** Columns and rows of the cells a circle overlaps: [first col, last col, first row, last row]. */
-  private cellRange(x: number, y: number, r: number): [number, number, number, number] {
+  /**
+   * Columns and rows of the cells a circle overlaps: first col, last col, first
+   * row, last row. Returns the same array every time.
+   */
+  private cellRange(x: number, y: number, r: number): Int32Array {
     const s = this.cellSize;
-    const clampCol = (c: number) => Math.min(this.cols - 1, Math.max(0, c));
-    const clampRow = (c: number) => Math.min(this.rows - 1, Math.max(0, c));
-    return [
-      clampCol(Math.floor((x - r) / s)),
-      clampCol(Math.floor((x + r) / s)),
-      clampRow(Math.floor((y - r) / s)),
-      clampRow(Math.floor((y + r) / s)),
-    ];
+    const lastCol = this.cols - 1;
+    const lastRow = this.rows - 1;
+    const range = this.range;
+    range[0] = Math.min(lastCol, Math.max(0, Math.floor((x - r) / s)));
+    range[1] = Math.min(lastCol, Math.max(0, Math.floor((x + r) / s)));
+    range[2] = Math.min(lastRow, Math.max(0, Math.floor((y - r) / s)));
+    range[3] = Math.min(lastRow, Math.max(0, Math.floor((y + r) / s)));
+    return range;
   }
 
   private link(id: number, cell: number): void {
